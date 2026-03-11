@@ -61,7 +61,6 @@ class App:
 		for name in self.images:
 			self.known_face_names.append((os.path.splitext(name)[0]).split('.')[1])
 
-
 		self.face_locations=[]
 		self.face_encodings=[]
 		self.face_names=[]
@@ -166,7 +165,9 @@ class App:
 		image=Image.open('images/'+x)
 		image = image.resize((180,180), Image.LANCZOS)
 		photo=ImageTk.PhotoImage(image)
-		photo_l=Label(image=photo,width=180,height=180).place(x=750,y=450).pack()
+		photo_l=Label(self.window, image=photo, width=180, height=180)
+		photo_l.image = photo  # Keep reference to avoid garbage collection
+		photo_l.place(x=750, y=450)
 
 
 	def getProfile(self, id):
@@ -203,13 +204,15 @@ class App:
 				small_frame=cv2.resize(frame,(0,0),fx=0.25,fy=0.25)
 
 				#convert the image to BGR color(openCV) to RGB color(face_recognition)
-				rgb_small_frame=small_frame[:,:,::-1]
+				rgb_small_frame=cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+				# Ensure contiguous array in memory
+				rgb_small_frame=np.ascontiguousarray(rgb_small_frame)
 
 				#Only process every other frame of video to save time
 				if self.process_this_frame and len(self.encodings) > 0:
 					#find all the faces and face encodings in the current frame of video
 					self.face_locations=fr.face_locations(rgb_small_frame)
-					self.face_encodings=fr.face_encodings(rgb_small_frame,self.face_locations)
+					self.face_encodings=fr.face_encodings(rgb_small_frame,self.face_locations,num_jitters=0)
 					self.face_names=[]
 					for face_encoding in self.face_encodings:
 						#See if the face is a match for known face(s)
