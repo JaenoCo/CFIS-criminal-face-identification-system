@@ -34,12 +34,26 @@ class App:
 		#get image names
 		self.images_name=[]
 		for img in self.images:
-			self.images_name.append(fr.load_image_file(os.path.join("images",img)))
+			loaded_img = fr.load_image_file(os.path.join("images",img))
+			# Convert RGBA to RGB if necessary
+			if len(loaded_img.shape) == 3 and loaded_img.shape[-1] == 4:
+				loaded_img = loaded_img[:, :, :3]
+			# Ensure the image is in the correct format (uint8)
+			if loaded_img.dtype != np.uint8:
+				loaded_img = (loaded_img * 255).astype(np.uint8)
+			self.images_name.append(loaded_img)
 		
 		#get their encodings
 		self.encodings=[]
-		for img in self.images_name:
-			self.encodings.append(fr.face_encodings(img)[0])
+		for idx, img in enumerate(self.images_name):
+			try:
+				face_encode = fr.face_encodings(img)
+				if len(face_encode) > 0:
+					self.encodings.append(face_encode[0])
+				else:
+					print(f"Warning: No face detected in {self.images[idx]}")
+			except Exception as e:
+				print(f"Error processing {self.images[idx]}: {str(e)}")
 
 
 		#get id from images
@@ -89,8 +103,10 @@ class App:
 
 	def load_images_from_folder(self,folder):
 		images=[]
+		valid_extensions = ['.png', '.jpg', '.jpeg', '.bmp']
 		for filename in os.listdir(folder):
-			images.append(filename)
+			if any(filename.lower().endswith(ext) for ext in valid_extensions):
+				images.append(filename)
 		return images
 
 	def doubleclick(self,event):
@@ -148,22 +164,22 @@ class App:
 
 		x='user.'+str(a)+".png"
 		image=Image.open('images/'+x)
-		image = image.resize((180,180), Image.ANTIALIAS)
+		image = image.resize((180,180), Image.LANCZOS)
 		photo=ImageTk.PhotoImage(image)
 		photo_l=Label(image=photo,width=180,height=180).place(x=750,y=450).pack()
 
 
-	def getProfile(self,id):
-	    conn=sqlite3.connect("criminal.db")
-	    cmd="SELECT ID,name,crime,nationality FROM people where ID="+str(id)
-	    cursor=conn.execute(cmd)
-	    profile=None
-	    for row in cursor:
-	        profile=row
-	        break
-	    
-	    conn.close()
-	    return profile
+	def getProfile(self, id):
+		conn = sqlite3.connect("criminal.db")
+		cmd = "SELECT ID,name,crime,nationality FROM people where ID=" + str(id)
+		cursor = conn.execute(cmd)
+		profile = None
+		for row in cursor:
+			profile = row
+			break
+		
+		conn.close()
+		return profile
 
 	
 	def showPercentageMatch(self,face_distance,face_match_threshold=0.6):
@@ -177,70 +193,70 @@ class App:
 			return linear_val + ((1.0 - linear_val) * math.pow((linear_val - 0.5) * 2, 0.2))
 
 	def update(self):
-		isTrue,frame=self.vid.getframe()
-		if isTrue:
-			self.photo=ImageTk.PhotoImage(image=Image.fromarray(frame))
-			self.canvas.create_image(0,0,image=self.photo,anchor=NW)
+		try:
+			isTrue,frame=self.vid.getframe()
+			if isTrue:
+				self.photo=ImageTk.PhotoImage(image=Image.fromarray(frame))
+				self.canvas.create_image(0,0,image=self.photo,anchor=NW)
 
-			#Resize the frame of video to 1/4 size for fast process
-			small_frame=cv2.resize(frame,(0,0),fx=0.25,fy=0.25)
+				#Resize the frame of video to 1/4 size for fast process
+				small_frame=cv2.resize(frame,(0,0),fx=0.25,fy=0.25)
 
-			#convert the image to BGR color(openCV) to RGB color(face_recognition)
-			rgb_small_frame=small_frame[:,:,::-1]
+				#convert the image to BGR color(openCV) to RGB color(face_recognition)
+				rgb_small_frame=small_frame[:,:,::-1]
 
-			#Only process every other frame of video to save time
-			if self.process_this_frame:
-				#find all the faces and face encodings in the current frame of video
-				self.face_locations=fr.face_locations(rgb_small_frame)
-				self.face_encodings=fr.face_encodings(rgb_small_frame,self.face_locations)
-				self.face_names=[]
-				for face_encoding in self.face_encodings:
-					#See if the face is a match for known face(s)
-					matches=fr.compare_faces(self.encodings,face_encoding)
-					Id=0
-					face_distances=fr.face_distance(self.encodings,face_encoding)
-					best_match_index=np.argmin(face_distances)
+				#Only process every other frame of video to save time
+				if self.process_this_frame and len(self.encodings) > 0:
+					#find all the faces and face encodings in the current frame of video
+					self.face_locations=fr.face_locations(rgb_small_frame)
+					self.face_encodings=fr.face_encodings(rgb_small_frame,self.face_locations)
+					self.face_names=[]
+					for face_encoding in self.face_encodings:
+						#See if the face is a match for known face(s)
+						matches=fr.compare_faces(self.encodings,face_encoding)
+						Id=0
+						face_distances=fr.face_distance(self.encodings,face_encoding)
+						best_match_index=np.argmin(face_distances)
 
-					percent=self.showPercentageMatch(face_distances[best_match_index])
-					
-					#acc = accuracy_score(self.encodings[best_match_index], face_encoding)
+						percent=self.showPercentageMatch(face_distances[best_match_index])
+						
+						#acc = accuracy_score(self.encodings[best_match_index], face_encoding)
 
-					if matches[best_match_index]:
-						Id=self.known_face_names[best_match_index]
-					self.face_names.append(Id)
+						if matches[best_match_index]:
+							Id=self.known_face_names[best_match_index]
+						self.face_names.append(Id)
 
-			# self.gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
-			# faces=self.faceDetect.detectMultiScale(self.gray, 1.2, 5)
-			# for(x,y,w,h) in faces:
-			# 	cv2.rectangle(frame,(x,y),(x+w,y+h),(225,0,0),2)
-			# 	Id, confidence = self.recognizer.predict(self.gray[y:y+h,x:x+w])
-			
-					profile=self.getProfile(Id)
-					confidence=str(round(percent*100,2))+"%"
+						# Get profile and display if match found
+						profile=self.getProfile(Id)
+						confidence=str(round(percent*100,2))+"%"
 
-					if profile not in self.detectedPeople and profile!=None:
-						self.detectedPeople.append(profile)
-						profilex=list(profile)
-						profilex.append(confidence)
-						profile=tuple(profilex)
-						self.tree.insert("", 'end', values=profile)
-						self.tree.bind("<Double-1>",self.doubleclick)
-						winsound.PlaySound("SystemExit", winsound.SND_ALIAS)
+						if profile not in self.detectedPeople and profile!=None:
+							self.detectedPeople.append(profile)
+							profilex=list(profile)
+							profilex.append(confidence)
+							profile=tuple(profilex)
+							self.tree.insert("", 'end', values=profile)
+							self.tree.bind("<Double-1>",self.doubleclick)
+							winsound.PlaySound("SystemExit", winsound.SND_ALIAS)
 
-					print(profile)
-			self.process_this_frame=not self.process_this_frame
-			# #display the result
-			# for(top,right,bottom,left),name in zip(self.face_locations,self.face_names):
-			# 	top*=4
-			# 	right*=4
-			# 	bottom*=4
-			# 	left*=4
-			# 	cv2.rectangle(frame,(left,top),(right,bottom),(0,0,225),2)
-			# 	cv2.rectangle(frame,(left,bottom-35),(right,bottom),(0,0,225),cv2.FILLED)
-			# 	font=cv2.FONT_HERSHEY_DUPLEX
-			# 	cv2.putText(frame,name,(left+6,bottom-6),font,1.0,(225,225,225),1)
-
-		self.window.after(15,self.update)
+						print(profile)
+				self.process_this_frame=not self.process_this_frame
+				
+				# #display the result
+				# for(top,right,bottom,left),name in zip(self.face_locations,self.face_names):
+				# 	top*=4
+				# 	right*=4
+				# 	bottom*=4
+				# 	left*=4
+				# 	cv2.rectangle(frame,(left,top),(right,bottom),(0,0,225),2)
+				# 	cv2.rectangle(frame,(left,bottom-35),(right,bottom),(0,0,225),cv2.FILLED)
+				# 	font=cv2.FONT_HERSHEY_DUPLEX
+				# 	cv2.putText(frame,name,(left+6,bottom-6),font,1.0,(225,225,225),1)
+		except Exception as e:
+			print(f"Error in update loop: {str(e)}")
+		finally:
+			# Always schedule next update to prevent freezing
+			self.window.after(15,self.update)
 
 #####################################################################################################
 class myvideocapture:

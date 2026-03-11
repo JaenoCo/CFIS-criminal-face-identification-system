@@ -1,32 +1,48 @@
 from tkinter import * 
 from tkinter import ttk
 import shutil
-from PIL import ImageTk,Image
+from PIL import ImageTk, Image
 import sqlite3
 from tkinter import filedialog
 import tkinter.messagebox as tmsg
-import cv2,os
+import cv2, os
 import face_recognition as fr
 import numpy as np
 import math
 import winsound
 
-if __name__ == "__main__":
-   root = Tk()
-   root.geometry('1350x720')
-   root.minsize(1350,720)
-   root.configure(bg="#382273")
-   root.state("zoomed")
-   root.title("CFIS- Criminal Face Identification System")
-   
-image=Image.open("images.jpg")
-# f = mp3play.load('Sound.mp3');
-# play = lambda: f.play()
+# Global variables
+selected_image_path = None
+preview_photo = None
+preview_label = None
+process_this_frame = True
 
-image = image.resize((400,400), Image.ANTIALIAS)
-photo=ImageTk.PhotoImage(image)
-photo_label=Label(image=photo,width=400,height=400).place(x=90,y=110)
-photo_label
+
+def on_enter(button, color):
+    """Button hover effect"""
+    button['background'] = color
+
+
+def on_leave(button, color):
+    """Button leave effect"""
+    button['background'] = color
+
+
+if __name__ == "__main__":
+    root = Tk()
+    root.geometry('1400x800')
+    root.minsize(1400, 800)
+    root.state("zoomed")
+    root.title("CFIS - Criminal Photo Match System")
+    root.configure(bg="#382273")
+
+# Initial placeholder image
+initial_image = Image.open("images.jpg")
+initial_image = initial_image.resize((400, 400), Image.LANCZOS)
+initial_photo = ImageTk.PhotoImage(initial_image)
+preview_label = Label(root, image=initial_photo, width=400, height=400, bg="#382273")
+preview_label.place(x=90, y=110)
+preview_label.image = initial_photo  # Keep a reference
 
 label_1 = Label(root, text="Select Photo to detect faces",bg='#382273',fg='white',width=50,font=("bold", 15))
 label_1.place(x=30,y=60)
@@ -108,20 +124,32 @@ def viewdetail(a):
    #############################################################################
    x='user.'+str(a)+".png"
    image=Image.open('images/'+x)
-   image = image.resize((250,250), Image.ANTIALIAS)
+   image = image.resize((250,250), Image.LANCZOS)
    photo=ImageTk.PhotoImage(image)
    photo_l=Label(image=photo,width=250,height=250).place(x=690,y=400).pack()
 
 
 def mfileopen():
-   cleartree()
+   global preview_photo, preview_label
+   
    file1=filedialog.askopenfilename()
+   if not file1:
+      return
+   
    print(file1)
    newPath = shutil.copy(file1, 'temp/1.png')
    image=Image.open('temp/1.png')
-   image = image.resize((400,400), Image.ANTIALIAS)
-   photo=ImageTk.PhotoImage(image)
-   photolbl=Label(image=photo,width=400,height=400).place(x=90,y=110).pack()
+   image = image.resize((400,400), Image.LANCZOS)
+   preview_photo = ImageTk.PhotoImage(image)
+   
+   # Remove old label if exists
+   if preview_label:
+      preview_label.destroy()
+   
+   # Create new label with image
+   preview_label = Label(root, image=preview_photo, width=400, height=400, bg="#382273")
+   preview_label.place(x=90, y=110)
+   preview_label.image = preview_photo  # Keep a reference
 
 def cleartree():
    records=tree.get_children()
@@ -138,8 +166,10 @@ def doubleclick(event):
     
 def load_images_from_folder(folder):
     images=[]
+    valid_extensions = ['.png', '.jpg', '.jpeg', '.bmp']
     for filename in os.listdir(folder):
-      images.append(filename)
+      if any(filename.lower().endswith(ext) for ext in valid_extensions):
+        images.append(filename)
     return images
 
 def showPercentageMatch(face_distance,face_match_threshold=0.6):
@@ -154,58 +184,87 @@ def showPercentageMatch(face_distance,face_match_threshold=0.6):
 
 
 def View():
+    # Check if an image has been selected
+    if not os.path.exists("temp/1.png"):
+        tmsg.showwarning("No Image", "Please select a photo first!")
+        return
+    
     cleartree()
-    frame =cv2.imread("temp/1.png")
-    #Resize the frame of video to 1/4 size for fast process
-    small_frame=cv2.resize(frame,(0,0),fx=0.25,fy=0.25)
+    
+    try:
+        frame = cv2.imread("temp/1.png")
+        
+        if frame is None:
+            tmsg.showerror("Error", "Could not read the selected image!")
+            return
+        
+        # Handle RGBA images - convert to RGB
+        if frame.shape[-1] == 4:
+            frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
+        else:
+            # Convert BGR to RGB
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+        #Resize the frame of video to 1/4 size for fast process
+        small_frame=cv2.resize(frame,(0,0),fx=0.25,fy=0.25)
 
-    #convert the image to BGR color(openCV) to RGB color(face_recognition)
-    rgb_small_frame=small_frame[:,:,::-1]
+        # small_frame is already in RGB now, no need to reverse
+        rgb_small_frame=small_frame
 
-    #Only process every other frame of video to save time
-    if process_this_frame:
-        #find all the faces and face encodings in the current frame of video
-        face_locations=fr.face_locations(rgb_small_frame)
-        face_encodings=fr.face_encodings(rgb_small_frame,face_locations)
-        face_names=[]
-        for face_encoding in face_encodings:
-          #See if the face is a match for known face(s)
-          matches=fr.compare_faces(encodings,face_encoding)
-          print(matches)
-          Id=0
-          face_distances=fr.face_distance(encodings,face_encoding)
-          best_match_index=np.argmin(face_distances)
-          percent=showPercentageMatch(face_distances[best_match_index])
+        #Only process every other frame of video to save time
+        if process_this_frame:
+            #find all the faces and face encodings in the current frame of video
+            face_locations=fr.face_locations(rgb_small_frame)
+            face_encodings_list=fr.face_encodings(rgb_small_frame,face_locations)
+            
+            if not face_encodings_list:
+                label_Match = Label(root, text="No face detected in image!",bg="#382273",fg='yellow',width=35,font=("bold", 20))
+                label_Match.place(x=20,y=690)
+                return
+            
+            face_names=[]
+            for face_encoding in face_encodings_list:
+              #See if the face is a match for known face(s)
+              matches=fr.compare_faces(encodings,face_encoding)
+              print(matches)
+              Id=0
+              face_distances=fr.face_distance(encodings,face_encoding)
+              best_match_index=np.argmin(face_distances)
+              percent=showPercentageMatch(face_distances[best_match_index])
 
-          if matches[best_match_index]:
-            Id=known_face_names[best_match_index]
-          face_names.append(Id)
+              if matches[best_match_index]:
+                Id=known_face_names[best_match_index]
+              face_names.append(Id)
 
-          confidence=str(round(percent*100,2))+"%"
+              confidence=str(round(percent*100,2))+"%"
 
-          conn = sqlite3.connect("criminal.db")
-          cur = conn.cursor()
-          cur.execute("SELECT ID,name,crime,nationality FROM people where ID="+str(Id))
-          rows = cur.fetchall()
-          print(rows)
+              conn = sqlite3.connect("criminal.db")
+              cur = conn.cursor()
+              cur.execute("SELECT ID,name,crime,nationality FROM people where ID="+str(Id))
+              rows = cur.fetchall()
+              print(rows)
 
-          if(len(rows)>0):
-            row=rows[0]
-            a="Matching "+str(percent*100)+"%"
-            tree.insert("", 'end', values=row)
-            tree.bind("<Double-1>",doubleclick)
-            # play()
-            winsound.PlaySound("SystemExit", winsound.SND_ALIAS)
-
-
-          else:
-            a="No Match Found!"
+              if(len(rows)>0):
+                row=rows[0]
+                a="Matching "+str(percent*100)+"%"
+                tree.insert("", 'end', values=row)
+                tree.bind("<Double-1>",doubleclick)
+                # play()
+                winsound.PlaySound("SystemExit", winsound.SND_ALIAS)
 
 
-          label_Match = Label(root, text=a,bg="#382273",fg='yellow',width=35,font=("bold", 20))
-          label_Match.place(x=20,y=690)
+              else:
+                a="No Match Found!"
+
+
+              label_Match = Label(root, text=a,bg="#382273",fg='yellow',width=35,font=("bold", 20))
+              label_Match.place(x=20,y=690)
          
-          conn.close()
+              conn.close()
+    
+    except Exception as e:
+        print(f"Error in View(): {str(e)}")
+        tmsg.showerror("Error", f"An error occurred during face matching:\n{str(e)}")
     
 Fullname=StringVar()
 father=StringVar()
@@ -241,17 +300,43 @@ images=load_images_from_folder("images")
     #get image names
 images_name=[]
 for img in images:
-      images_name.append(fr.load_image_file(os.path.join("images",img)))
+      img_path = os.path.join("images", img)
+      print(img_path)
+      
+      # Use cv2 to load image instead of face_recognition
+      loaded_img = cv2.imread(img_path)
+      
+      if loaded_img is None:
+        print(f"Error: Could not load {img_path}")
+        continue
+      
+      # Convert from BGR to RGB (OpenCV loads as BGR)
+      loaded_img = cv2.cvtColor(loaded_img, cv2.COLOR_BGR2RGB)
+      
+      # Handle RGBA images if they exist
+      if loaded_img.shape[-1] == 4:
+        loaded_img = cv2.cvtColor(loaded_img, cv2.COLOR_RGBA2RGB)
+      
+      images_name.append(loaded_img)
     
     #get their encodings
 encodings=[]
-for img in images_name:
-      encodings.append(fr.face_encodings(img)[0])
+valid_images = []  # Track which images have valid encodings
+for idx, img in enumerate(images_name):
+      try:
+        face_encode = fr.face_encodings(img)
+        if len(face_encode) > 0:
+          encodings.append(face_encode[0])
+          valid_images.append(images[idx])  # Keep track of valid images
+        else:
+          print(f"Warning: No face detected in {images[idx]}")
+      except Exception as e:
+        print(f"Error processing {images[idx]}: {str(e)}")
 
 
-    #get id from images
+    #get id from images (only for valid encodings)
 known_face_names=[]
-for name in images:
+for name in valid_images:
       known_face_names.append((os.path.splitext(name)[0]).split('.')[1])
 
 

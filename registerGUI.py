@@ -1,7 +1,8 @@
 from tkinter import *
+from tkinter import ttk
 import shutil
 import time
-from PIL import ImageTk,Image
+from PIL import ImageTk, Image
 import sqlite3
 from tkinter import filedialog
 import tkinter.messagebox as tmsg
@@ -14,39 +15,50 @@ def callTrainer():
 
 
 if __name__ == "__main__":
-   root = Tk()
-   root.geometry('1350x720')
-   root.minsize(1350,720)
-   root.state("zoomed")
-   root.title("CFIS- Criminal Face Identification System")
+    root = Tk()
+    root.geometry('1400x800')
+    root.minsize(1400, 800)
+    root.state("zoomed")
+    root.title("CFIS - Criminal Registration System")
+    root.configure(bg="#f0f2f5")
 
 
-Fullname=StringVar()
-Fathername=StringVar()
-Mothername=StringVar()
-Bodymark=StringVar()
-dob=StringVar()
-Nationality=StringVar()
-Crime=StringVar()
+Fullname = StringVar()
+Fathername = StringVar()
+Mothername = StringVar()
+Bodymark = StringVar()
+dob = StringVar()
+Nationality = StringVar()
+Crime = StringVar()
 gen = IntVar()
-rel=StringVar()
-blood=StringVar()
-file1=""
+rel = StringVar()
+blood = StringVar()
+file1 = ""
 
-image=Image.open("images.jpg")
-photo=ImageTk.PhotoImage(image)
-photo_label=Label(image=photo,width=500,height=500).place(x=740,y=140)
-photo_label
-   
+
+def on_enter(button, color):
+    """Button hover effect"""
+    button['background'] = color
+
+
+def on_leave(button, color):
+    """Button leave effect"""
+    button['background'] = color
+
 def ask():
-   value=tmsg.askquestion("CFIS WARNING !","Select all (*) mandatory fields.\n(name,gender,religion,crime,pic)\n\n If done already, then proceed. \n\n Will you like to proceed ?")
-   if value=="yes":
-      x=databaseEnter()
-      if(x==1):
-         tmsg.showinfo("Success","New Face Recorded Successfully")
-         root.destroy()
-      else:
-         tmsg.showinfo("Warning","Please enter all (*) marked details")
+    value = tmsg.askquestion(
+        "CONFIRM REGISTRATION",
+        "Please ensure all required fields (*) are filled:\n\n" +
+        "• Name\n• Gender\n• Religion\n• Crime\n• Face Image\n\n" +
+        "Do you want to proceed with registration?"
+    )
+    if value == "yes":
+        x = databaseEnter()
+        if (x == 1):
+            tmsg.showinfo("Success", "Criminal record has been registered successfully!")
+            root.destroy()
+        else:
+            tmsg.showerror("Error", "Please fill all required (*) fields before submitting.")
 
 
       
@@ -93,144 +105,409 @@ def ask():
 
 #       root.destroy()
    
-###########################################################
 def getid():
-   conn = sqlite3.connect('criminal.db')
-   with conn:
-      cursor=conn.cursor()
-   cursor.execute('select max(ID) from People')
-   conn.commit()
-   for row in cursor:
-    for elem in row:
-        x = elem
-   return x
-   
+    conn = sqlite3.connect('criminal.db')
+    with conn:
+        cursor = conn.cursor()
+    cursor.execute('select max(ID) from People')
+    conn.commit()
+    for row in cursor:
+        for elem in row:
+            x = elem
+    return x
+
+
 def databaseEnter():
-   name=Fullname.get()
-   father=Fathername.get()
-   mother=Mothername.get()
-   bl=blood.get()
-   if(bl=="Select Blood Group"):
-      bl=None
-   body=Bodymark.get()
-   nat=Nationality.get()
-   crime=Crime.get()
-   Dob=dob.get()
-   gen1=""
-   gender=gen.get()
-   if(gender==1):
-      gen1='Male'
-   if(gender==2):
-      gen1='Female'
-   religion=rel.get()
-   if(religion=="Select Religion"):
-      religion=None
-   
-   if(name!="" and crime!="" and gen1!=""):
-      conn = sqlite3.connect('criminal.db')
-      with conn:
-         cursor=conn.cursor()
-      #cursor.execute('CREATE TABLE IF NOT EXISTS People (Fullname TEXT,Email TEXT,Gender TEXT,country TEXT,Programming TEXT)')
-      cursor.execute('INSERT INTO People (Name,Gender,Father,Mother,Religion,Blood,Bodymark,Nationality,Crime) VALUES(?,?,?,?,?,?,?,?,?)',(name,gen1,father,mother,religion,bl,body,nat,crime))
-      conn.commit()
-      x=getid()
-      file="images/user." + str(x) + ".png"
-      newPath = shutil.copy('temp/1.png',file)
-   else:
-      return 0
-   return 1
+    name = Fullname.get()
+    father = Fathername.get()
+    mother = Mothername.get()
+    bl = blood.get()
+    if (bl == "Select Blood Group"):
+        bl = None
+    body = Bodymark.get()
+    nat = Nationality.get()
+    crime = Crime.get()
+    Dob = dob.get()
+    gen1 = ""
+    gender = gen.get()
+    if (gender == 1):
+        gen1 = 'Male'
+    if (gender == 2):
+        gen1 = 'Female'
+    religion = rel.get()
+    if (religion == "Select Religion"):
+        religion = None
+
+    if (name != "" and crime != "" and gen1 != ""):
+        conn = sqlite3.connect('criminal.db')
+        with conn:
+            cursor = conn.cursor()
+        cursor.execute('INSERT INTO People (Name,Gender,Father,Mother,Religion,Blood,Bodymark,Nationality,Crime) VALUES(?,?,?,?,?,?,?,?,?)',
+                       (name, gen1, father, mother, religion, bl, body, nat, crime))
+        conn.commit()
+        x = getid()
+        file = "images/user." + str(x) + ".png"
+        newPath = shutil.copy('temp/1.png', file)
+    else:
+        return 0
+    return 1
+
+
+# Image preview label
+preview_image = None
+preview_label = None
 
 
 def mfileopen():
-   file1=filedialog.askopenfilename()
-   print(file1)
-   newPath = shutil.copy(file1, 'temp/1.png')
-   image=Image.open('temp/1.png')
-   image = image.resize((500,500), Image.ANTIALIAS)
-   photo=ImageTk.PhotoImage(image)
-   photo_label=Label(image=photo,width=500,height=500).place(x=740,y=140).pack()
-   label_ = Label(root, text=file1,width=70,font=("bold", 8))
-   label_.place(x=260,y=630)
-   
-label_10 = Label(root, text="Criminal Face Identification System",width=85,font=("bold", 20),anchor=CENTER,bg="#386184",fg="white")
-label_10.place(x=0,y=0)
+    global preview_image, preview_label
+    file1 = filedialog.askopenfilename(
+        title="Select Face Image",
+        filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp"), ("All files", "*.*")]
+    )
+    if file1:
+        print(file1)
+        newPath = shutil.copy(file1, 'temp/1.png')
+        image = Image.open('temp/1.png')
+        image = image.resize((400, 400), Image.LANCZOS)
+        preview_image = ImageTk.PhotoImage(image)
+        
+        if preview_label:
+            preview_label.destroy()
+        
+        preview_label = Label(
+            image_frame,
+            image=preview_image,
+            bg="white",
+            relief=SOLID,
+            bd=2
+        )
+        preview_label.image = preview_image
+        preview_label.pack(pady=10)
+        
+        file_path_label.config(text=f"Selected: {file1.split('/')[-1]}", fg="#28a745")
 
-             
-label_0 = Label(root, text="Registration Form",width=95,font=("bold", 16),bg="#180020",fg='white')
-label_0.place(x=70,y=42)
+# ================================ GUI LAYOUT ================================
 
-##################  form begin  ######################
+# Header Frame
+header_frame = Frame(root, bg="#16213e", height=80)
+header_frame.pack(fill=X)
+header_frame.pack_propagate(False)
 
-label_1 = Label(root, text="Name    *",width=20,font=("bold", 12))
-label_1.place(x=70,y=130)
+title_label = Label(
+    header_frame,
+    text="CRIMINAL REGISTRATION SYSTEM",
+    font=("Helvetica", 22, "bold"),
+    bg="#16213e",
+    fg="#ffffff"
+)
+title_label.pack(pady=25)
 
-entry_1 = Entry(root,width=50,textvar=Fullname)
-entry_1.place(x=260,y=130)
+# Main container
+main_container = Frame(root, bg="#f0f2f5")
+main_container.pack(fill=BOTH, expand=True, padx=40, pady=30)
 
-label_2 = Label(root, text="Father Name",width=20,font=("bold", 12))
-label_2.place(x=70,y=180)
+# Left panel - Form
+left_panel = Frame(main_container, bg="white", relief=SOLID, bd=1)
+left_panel.pack(side=LEFT, fill=BOTH, expand=True, padx=(0, 20))
 
-entry_2 = Entry(root,width=50,textvar=Fathername)
-entry_2.place(x=260,y=180)
+# Form title
+form_title_frame = Frame(left_panel, bg="#0f3460", height=50)
+form_title_frame.pack(fill=X)
+form_title_frame.pack_propagate(False)
 
-label_3 = Label(root, text="Gender      *",width=20,font=("bold", 12))
-label_3.place(x=70,y=280)
+Label(
+    form_title_frame,
+    text="Personal Information",
+    font=("Helvetica", 14, "bold"),
+    bg="#0f3460",
+    fg="white"
+).pack(pady=12)
 
-Radiobutton(root, text="Male",padx = 5, variable=gen, value=1).place(x=260,y=280)
-Radiobutton(root, text="Female",padx = 20, variable=gen, value=2).place(x=315,y=280)
+# Form content with scrollbar
+form_canvas = Canvas(left_panel, bg="white", highlightthickness=0)
+scrollbar = ttk.Scrollbar(left_panel, orient="vertical", command=form_canvas.yview)
+form_content = Frame(form_canvas, bg="white")
 
-label_4 = Label(root, text="Mother Name",width=20,font=("bold", 12))
-label_4.place(x=70,y=230)
-entry_5 = Entry(root,width=50,textvar=Mothername)
-entry_5.place(x=260,y=230)
+form_content.bind(
+    "<Configure>",
+    lambda e: form_canvas.configure(scrollregion=form_canvas.bbox("all"))
+)
 
-##############
+form_canvas_window = form_canvas.create_window((0, 0), window=form_content, anchor="nw")
+form_canvas.configure(yscrollcommand=scrollbar.set)
 
-label_4 = Label(root, text="Religion    *",width=20,font=("bold", 12))
-label_4.place(x=70,y=330)
-list1 = ['Hindu','Muslim','Buddhist','Christian','Sikh','Jain','Others'];
+# Enable mouse wheel scrolling
+def on_mousewheel(event):
+    form_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
-droplist=OptionMenu(root,rel, *list1)
-droplist.config(width=30)
-rel.set('Select Religion') 
-droplist.place(x=260,y=325)
+def bind_mousewheel(event):
+    form_canvas.bind_all("<MouseWheel>", on_mousewheel)
 
+def unbind_mousewheel(event):
+    form_canvas.unbind_all("<MouseWheel>")
 
-##########
+form_canvas.bind('<Enter>', bind_mousewheel)
+form_canvas.bind('<Leave>', unbind_mousewheel)
 
-label_5 = Label(root, text="Blood Group",width=20,font=("bold", 12))
-label_5.place(x=70,y=380)
+# Make canvas window width match canvas width
+def resize_canvas_window(event):
+    form_canvas.itemconfig(form_canvas_window, width=event.width)
 
-list2 = ['A+','A-','B+','B-','AB+','AB-','O+','O-','Not known'];
+form_canvas.bind('<Configure>', resize_canvas_window)
 
-droplist=OptionMenu(root,blood, *list2)
-droplist.config(width=30)
-blood.set('Select Blood Group') 
-droplist.place(x=260,y=380)
+form_canvas.pack(side=LEFT, fill=BOTH, expand=True)
+scrollbar.pack(side=RIGHT, fill=Y)
 
-label_6 = Label(root, text="Body Mark",width=20,font=("bold", 12))
-label_6.place(x=70,y=430)
+# Styling variables
+label_font = ("Helvetica", 11, "bold")
+entry_font = ("Helvetica", 10)
+entry_width = 40
+padding_y = 15
 
-entry_6 = Entry(root,width=50,textvar=Bodymark)
-entry_6.place(x=260,y=430)
+# Helper function to create form rows
+def create_form_row(parent, label_text, variable, row_num, required=False):
+    frame = Frame(parent, bg="white")
+    frame.pack(fill=X, padx=30, pady=padding_y)
+    
+    label_txt = label_text + (" *" if required else "")
+    label = Label(
+        frame,
+        text=label_txt,
+        font=label_font,
+        bg="white",
+        fg="#333333" if not required else "#c82333",
+        anchor=W
+    )
+    label.pack(anchor=W)
+    
+    entry = Entry(
+        frame,
+        textvariable=variable,
+        font=entry_font,
+        width=entry_width,
+        relief=SOLID,
+        bd=1
+    )
+    entry.pack(fill=X, pady=(5, 0))
+    return entry
 
-label_7 = Label(root, text="Nationality",width=20,font=("bold", 12))
-label_7.place(x=70,y=480)
+# Form fields
+create_form_row(form_content, "Full Name", Fullname, 0, required=True)
+create_form_row(form_content, "Father's Name", Fathername, 1)
+create_form_row(form_content, "Mother's Name", Mothername, 2)
 
-entry_7 = Entry(root,width=50,textvar=Nationality)
-entry_7.place(x=260,y=480)
+# Gender field
+gender_frame = Frame(form_content, bg="white")
+gender_frame.pack(fill=X, padx=30, pady=padding_y)
 
-label_8= Label(root, text="Crime convicted        *",width=20,font=("bold", 12))
-label_8.place(x=70,y=530)
+Label(
+    gender_frame,
+    text="Gender *",
+    font=label_font,
+    bg="white",
+    fg="#c82333",
+    anchor=W
+).pack(anchor=W)
 
-entry_8 = Entry(root,width=50,textvar=Crime)
-entry_8.place(x=260,y=530)
+gender_btn_frame = Frame(gender_frame, bg="white")
+gender_btn_frame.pack(anchor=W, pady=(5, 0))
 
-label_9 = Label(root, text="Face Image    *",width=20,font=("bold", 12))
-label_9.place(x=70,y=590)
+Radiobutton(
+    gender_btn_frame,
+    text="Male",
+    variable=gen,
+    value=1,
+    font=entry_font,
+    bg="white",
+    activebackground="white",
+    relief=FLAT,
+    highlightthickness=0,
+    bd=0
+).pack(side=LEFT, padx=(0, 20))
 
-btn=Button(text="Select",width=20,command=mfileopen).place(x=260,y=590)
-# Button(root, text='Create dataset',width=15,bg='green',fg='white',command=datasetGenerate).place(x=150,y=670)
-Button(root, text='Register',width=15,font=("bold",10),bg='brown',height=2,fg='white',command=ask).place(x=250,y=650)
+Radiobutton(
+    gender_btn_frame,
+    text="Female",
+    variable=gen,
+    value=2,
+    font=entry_font,
+    bg="white",
+    activebackground="white",
+    relief=FLAT,
+    highlightthickness=0,
+    bd=0
+).pack(side=LEFT)
+
+# Religion field
+religion_frame = Frame(form_content, bg="white")
+religion_frame.pack(fill=X, padx=30, pady=padding_y)
+
+Label(
+    religion_frame,
+    text="Religion *",
+    font=label_font,
+    bg="white",
+    fg="#c82333",
+    anchor=W
+).pack(anchor=W)
+
+list1 = ['Hindu', 'Muslim', 'Buddhist', 'Christian', 'Sikh', 'Jain', 'Others']
+rel.set('Select Religion')
+
+religion_dropdown = ttk.Combobox(
+    religion_frame,
+    textvariable=rel,
+    values=list1,
+    font=entry_font,
+    width=entry_width-2,
+    state='readonly'
+)
+religion_dropdown.pack(fill=X, pady=(5, 0))
+
+# Blood Group field
+blood_frame = Frame(form_content, bg="white")
+blood_frame.pack(fill=X, padx=30, pady=padding_y)
+
+Label(
+    blood_frame,
+    text="Blood Group",
+    font=label_font,
+    bg="white",
+    fg="#333333",
+    anchor=W
+).pack(anchor=W)
+
+list2 = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Not known']
+blood.set('Select Blood Group')
+
+blood_dropdown = ttk.Combobox(
+    blood_frame,
+    textvariable=blood,
+    values=list2,
+    font=entry_font,
+    width=entry_width-2,
+    state='readonly'
+)
+blood_dropdown.pack(fill=X, pady=(5, 0))
+
+create_form_row(form_content, "Body Mark", Bodymark, 6)
+create_form_row(form_content, "Nationality", Nationality, 7)
+create_form_row(form_content, "Crime Convicted", Crime, 8, required=True)
+
+# Add bottom padding to ensure last fields are fully visible
+Frame(form_content, bg="white", height=20).pack()
+
+# Right panel - Image upload
+right_panel = Frame(main_container, bg="white", relief=SOLID, bd=1, width=450)
+right_panel.pack(side=RIGHT, fill=BOTH)
+right_panel.pack_propagate(False)
+
+# Image section title
+image_title_frame = Frame(right_panel, bg="#0f3460", height=50)
+image_title_frame.pack(fill=X)
+image_title_frame.pack_propagate(False)
+
+Label(
+    image_title_frame,
+    text="Face Image",
+    font=("Helvetica", 14, "bold"),
+    bg="#0f3460",
+    fg="white"
+).pack(pady=12)
+
+# Image frame
+image_frame = Frame(right_panel, bg="white")
+image_frame.pack(fill=BOTH, expand=True, padx=20, pady=20)
+
+Label(
+    image_frame,
+    text="Upload Criminal Face Photo *",
+    font=("Helvetica", 11, "bold"),
+    bg="white",
+    fg="#c82333"
+).pack(pady=(10, 5))
+
+Label(
+    image_frame,
+    text="Supported formats: PNG, JPG, JPEG, BMP",
+    font=("Helvetica", 9),
+    bg="white",
+    fg="#6c757d"
+).pack()
+
+# Upload button
+upload_btn = Button(
+    image_frame,
+    text="📁 SELECT IMAGE",
+    font=("Helvetica", 11, "bold"),
+    bg="#0f3460",
+    fg="white",
+    relief=FLAT,
+    cursor="hand2",
+    padx=30,
+    pady=10,
+    command=mfileopen
+)
+upload_btn.pack(pady=20)
+upload_btn.bind("<Enter>", lambda e: on_enter(upload_btn, '#16558f'))
+upload_btn.bind("<Leave>", lambda e: on_leave(upload_btn, '#0f3460'))
+
+# File path label
+file_path_label = Label(
+    image_frame,
+    text="No file selected",
+    font=("Helvetica", 9),
+    bg="white",
+    fg="#6c757d"
+)
+file_path_label.pack()
+
+# Bottom action buttons
+action_frame = Frame(root, bg="#f0f2f5")
+action_frame.pack(fill=X, padx=40, pady=(0, 30))
+
+# Register button
+register_btn = Button(
+    action_frame,
+    text="✓ REGISTER CRIMINAL",
+    font=("Helvetica", 12, "bold"),
+    bg="#28a745",
+    fg="white",
+    relief=FLAT,
+    cursor="hand2",
+    padx=40,
+    pady=12,
+    command=ask
+)
+register_btn.pack(side=RIGHT)
+register_btn.bind("<Enter>", lambda e: on_enter(register_btn, '#218838'))
+register_btn.bind("<Leave>", lambda e: on_leave(register_btn, '#28a745'))
+
+# Cancel button
+cancel_btn = Button(
+    action_frame,
+    text="✕ CANCEL",
+    font=("Helvetica", 12, "bold"),
+    bg="#6c757d",
+    fg="white",
+    relief=FLAT,
+    cursor="hand2",
+    padx=40,
+    pady=12,
+    command=root.destroy
+)
+cancel_btn.pack(side=RIGHT, padx=(0, 15))
+cancel_btn.bind("<Enter>", lambda e: on_enter(cancel_btn, '#5a6268'))
+cancel_btn.bind("<Leave>", lambda e: on_leave(cancel_btn, '#6c757d'))
+
+# Info label
+info_label = Label(
+    action_frame,
+    text="Fields marked with * are mandatory",
+    font=("Helvetica", 9),
+    bg="#f0f2f5",
+    fg="#6c757d"
+)
+info_label.pack(side=LEFT)
 
 root.mainloop()
