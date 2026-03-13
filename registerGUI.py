@@ -313,8 +313,8 @@ class RegisterDashboard:
         self.crime_label = self._crime_search_field("Crime convicted *", self.crime, self.crime_y)
 
         self.buttons_y = self.crime_y + 56
-        self.select_image_btn = self._action_button("Select Face Image *", self.open_file, 185, self.buttons_y)
-        self.register_btn = self._action_button("Register Criminal", self.ask_register, 375, self.buttons_y)
+        self.select_image_btn = self._action_button("Select Face Image *", self.open_file, 95, self.buttons_y)
+        self.register_btn = self._action_button("Register Criminal", self.ask_register, 285, self.buttons_y)
 
         self.rel.trace_add("write", lambda *_args: self._toggle_custom_religion())
         self._toggle_custom_religion()
