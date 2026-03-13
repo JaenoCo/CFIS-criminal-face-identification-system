@@ -90,7 +90,7 @@ class RegisterDashboard:
         self.fathername = StringVar()
         self.mothername = StringVar()
         self.bodymark = StringVar()
-        self.nationality = StringVar()
+        self.nationality = StringVar(value="Select Nationality")
         self.crime = StringVar()
         self.gen = IntVar()
         self.rel = StringVar(value="Select Religion")
@@ -182,13 +182,13 @@ class RegisterDashboard:
             highlightbackground=self.colors["panel_border"],
         )
 
-        self.form_target_x = 0.35
-        self.preview_target_x = 0.76
-        self.form_x = 0.30
-        self.preview_x = 0.81
+        self.form_target_x = 0.27
+        self.preview_target_x = 0.73
+        self.form_x = 0.22
+        self.preview_x = 0.78
 
-        self.form_panel.place(relx=self.form_x, rely=0.55, anchor=CENTER, width=650, height=590)
-        self.preview_panel.place(relx=self.preview_x, rely=0.55, anchor=CENTER, width=430, height=590)
+        self.form_panel.place(relx=self.form_x, rely=0.55, anchor=CENTER, width=560, height=590)
+        self.preview_panel.place(relx=self.preview_x, rely=0.55, anchor=CENTER, width=560, height=590)
 
         # Scrollable canvas inside form_panel
         self.form_scrollbar = Scrollbar(self.form_panel, orient=VERTICAL)
@@ -266,7 +266,48 @@ class RegisterDashboard:
         self.body_mark_label, self.body_mark_entry = self._field("Body Mark", self.bodymark, self.body_mark_y)
 
         self.nationality_y = self.body_mark_y + 48
-        self.nationality_label, self.nationality_entry = self._field("Nationality", self.nationality, self.nationality_y)
+        self.nationality_label, self.nationality_entry = self._scrollable_dropdown(
+            "Nationality",
+            self.nationality,
+            [
+                "Afghan", "Albanian", "Algerian", "American", "Andorran",
+                "Angolan", "Argentine", "Armenian", "Australian", "Austrian",
+                "Azerbaijani", "Bahamian", "Bahraini", "Bangladeshi", "Barbadian",
+                "Belarusian", "Belgian", "Belizean", "Beninese", "Bhutanese",
+                "Bolivian", "Bosnian", "Brazilian", "British", "Bruneian",
+                "Bulgarian", "Burkinabe", "Burmese", "Burundian", "Cambodian",
+                "Cameroonian", "Canadian", "Cape Verdean", "Central African",
+                "Chadian", "Chilean", "Chinese", "Colombian", "Comoran",
+                "Congolese", "Costa Rican", "Croatian", "Cuban", "Cypriot",
+                "Czech", "Danish", "Djiboutian", "Dominican", "Dutch",
+                "East Timorese", "Ecuadorean", "Egyptian", "Emirati", "Equatorial Guinean",
+                "Eritrean", "Estonian", "Ethiopian", "Fijian", "Filipino",
+                "Finnish", "French", "Gabonese", "Gambian", "Georgian",
+                "German", "Ghanaian", "Greek", "Grenadian", "Guatemalan",
+                "Guinean", "Guyanese", "Haitian", "Honduran", "Hungarian",
+                "Icelandic", "Indian", "Indonesian", "Iranian", "Iraqi",
+                "Irish", "Israeli", "Italian", "Ivorian", "Jamaican",
+                "Japanese", "Jordanian", "Kazakhstani", "Kenyan", "Korean",
+                "Kuwaiti", "Kyrgyz", "Laotian", "Latvian", "Lebanese",
+                "Liberian", "Libyan", "Liechtensteiner", "Lithuanian", "Luxembourger",
+                "Macedonian", "Malagasy", "Malawian", "Malaysian", "Maldivian",
+                "Malian", "Maltese", "Mauritanian", "Mauritian", "Mexican",
+                "Moldovan", "Monacan", "Mongolian", "Montenegrin", "Moroccan",
+                "Mozambican", "Namibian", "Nepali", "New Zealander", "Nicaraguan",
+                "Nigerian", "Nigerien", "Norwegian", "Omani", "Pakistani",
+                "Palauan", "Palestinian", "Panamanian", "Papua New Guinean", "Paraguayan",
+                "Peruvian", "Polish", "Portuguese", "Qatari", "Romanian",
+                "Russian", "Rwandan", "Saint Lucian", "Salvadoran", "Samoan",
+                "Saudi", "Senegalese", "Serbian", "Sierra Leonean", "Singaporean",
+                "Slovak", "Slovenian", "Somali", "South African", "South Sudanese",
+                "Spanish", "Sri Lankan", "Sudanese", "Surinamese", "Swazi",
+                "Swedish", "Swiss", "Syrian", "Taiwanese", "Tajik",
+                "Tanzanian", "Thai", "Togolese", "Trinidadian", "Tunisian",
+                "Turkish", "Turkmen", "Ugandan", "Ukrainian", "Uruguayan",
+                "Uzbek", "Venezuelan", "Vietnamese", "Yemeni", "Zambian", "Zimbabwean",
+            ],
+            self.nationality_y,
+        )
 
         self.crime_y = self.nationality_y + 48
         self.crime_label = self._crime_search_field("Crime convicted *", self.crime, self.crime_y)
@@ -295,7 +336,7 @@ class RegisterDashboard:
             relief=FLAT,
             anchor=CENTER,
         )
-        self.preview_box.place(x=22, y=58, width=380, height=450)
+        self.preview_box.place(x=22, y=58, width=512, height=450)
 
         self.file_label = Label(
             self.preview_panel,
@@ -305,7 +346,7 @@ class RegisterDashboard:
             font=("Segoe UI", 9),
             anchor="w",
             justify=LEFT,
-            wraplength=380,
+            wraplength=512,
         )
         self.file_label.place(x=24, y=520)
 
@@ -490,6 +531,57 @@ class RegisterDashboard:
             cursor="hand2",
         ).place(x=x, y=y)
 
+    def _scrollable_dropdown(self, label, variable, values, y):
+        """Dropdown with a built-in scrollbar for long lists (ttk.Combobox)."""
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure(
+            "Dark.TCombobox",
+            fieldbackground=self.colors["field"],
+            background=self.colors["btn"],
+            foreground=self.colors["text"],
+            selectbackground=self.colors["btn_hover"],
+            selectforeground=self.colors["text"],
+            arrowcolor=self.colors["accent"],
+            bordercolor=self.colors["field_border"],
+            lightcolor=self.colors["field_border"],
+            darkcolor=self.colors["field_border"],
+            insertcolor=self.colors["text"],
+        )
+        style.map(
+            "Dark.TCombobox",
+            fieldbackground=[("readonly", self.colors["field"])],
+            foreground=[("readonly", self.colors["text"])],
+            selectbackground=[("readonly", self.colors["btn_hover"])],
+            selectforeground=[("readonly", self.colors["text"])],
+            background=[("active", self.colors["btn_hover"]), ("!active", self.colors["btn"])],
+        )
+        dropdown_label = Label(
+            self.form_inner, text=label,
+            bg=self.colors["panel"], fg=self.colors["text"], font=("Segoe UI", 11),
+        )
+        dropdown_label.place(x=28, y=y + 3)
+        combo = ttk.Combobox(
+            self.form_inner,
+            textvariable=variable,
+            values=values,
+            state="readonly",
+            font=("Segoe UI", 10),
+            style="Dark.TCombobox",
+            width=42,  # character width (fallback)
+        )
+        width_probe = Entry(self.form_inner, width=48, font=("Segoe UI", 10))
+        entry_width = width_probe.winfo_reqwidth()
+        width_probe.destroy()
+        combo.place(x=190, y=y, width=entry_width, height=30)
+        # Style the dropdown list popup
+        combo.option_add("*TCombobox*Listbox.background", self.colors["field"])
+        combo.option_add("*TCombobox*Listbox.foreground", self.colors["text"])
+        combo.option_add("*TCombobox*Listbox.selectBackground", self.colors["btn_hover"])
+        combo.option_add("*TCombobox*Listbox.selectForeground", self.colors["text"])
+        combo.option_add("*TCombobox*Listbox.font", ("Segoe UI", 10))
+        return dropdown_label, combo
+
     def _dropdown(self, label, variable, values, y):
         dropdown_label = Label(self.form_inner, text=label, bg=self.colors["panel"], fg=self.colors["text"], font=("Segoe UI", 11))
         dropdown_label.place(x=28, y=y + 3)
@@ -538,6 +630,7 @@ class RegisterDashboard:
         btn.bind("<ButtonPress-1>", lambda event, b=btn: self._button_press(b))
         btn.bind("<ButtonRelease-1>", lambda event, b=btn: self._button_release(b))
         return btn
+
     def _create_nav_button(self, parent, text, command):
         button = Button(
             parent,
@@ -600,6 +693,9 @@ class RegisterDashboard:
         self.root.after(10, lambda: self.form_canvas.configure(
             scrollregion=self.form_canvas.bbox("all")
         ))
+
+    def _center_action_buttons(self):
+        return
 
     def _on_form_scroll(self, event):
         self.form_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -925,7 +1021,7 @@ class RegisterDashboard:
             "father": self.fathername.get().strip(),
             "mother": self.mothername.get().strip(),
             "body": self.bodymark.get().strip(),
-            "nat": self.nationality.get().strip(),
+            "nat": "" if self.nationality.get().strip() in ("Select Nationality", "") else self.nationality.get().strip(),
             "crime": self.crime.get().strip(),
             "gender": gender,
             "religion": religion,
@@ -1991,8 +2087,8 @@ class RegisterDashboard:
         if religion is None:
             return 0, "Religion is required."
 
-        if nat and not self._is_valid_name(nat):
-            return 0, "Nationality is invalid. Use letters and spaces only."
+        if nat and nat == "Select Nationality":
+            nat = ""
 
         if not crime:
             return 0, "Crime convicted is required."
