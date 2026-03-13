@@ -94,18 +94,42 @@ class RegisterDashboard:
         self.crime = StringVar()
         self.gen = IntVar()
         self.rel = StringVar(value="Select Religion")
+        self.custom_religion = StringVar()
         self.blood = StringVar(value="Select Blood Group")
         self.selected_file = ""
         self.preview_photo = None
         self.crime_entry = None
+        self.crime_label = None
         self.crime_suggestion_box = None
         self.crime_suggestion_y = 0
         self.crime_options = self._crime_catalog()
         self.crime_options_lookup = {item.lower(): item for item in self.crime_options}
+
+        self.custom_religion_label = None
+        self.custom_religion_entry = None
+        self.custom_religion_visible = False
+        self.base_blood_y = 0
+        self.base_body_mark_y = 0
+        self.base_nationality_y = 0
+        self.base_crime_y = 0
+        self.base_actions_y = 0
+        self.blood_label = None
+        self.blood_menu = None
+        self.body_mark_label = None
+        self.body_mark_entry = None
+        self.nationality_label = None
+        self.nationality_entry = None
+        self.select_image_btn = None
+        self.register_btn = None
+        self._registering = False
+        self._register_result = None
+        self._register_thread = None
+        self._register_error = None
         
         # Initialize face detection for duplicate checking
         self.known_encodings = []
         self.known_face_ids = []
+        self._ensure_people_table()
         self._ensure_violations_table()
         self._ensure_aliases_table()
         self._seed_violations_from_people()
@@ -119,6 +143,7 @@ class RegisterDashboard:
         self._build_panels()
         self._fade_in_window()
         self._slide_in_panel()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
         notify_launcher_ready(self.root)
 
     def _build_header(self):
@@ -165,8 +190,33 @@ class RegisterDashboard:
         self.form_panel.place(relx=self.form_x, rely=0.55, anchor=CENTER, width=650, height=590)
         self.preview_panel.place(relx=self.preview_x, rely=0.55, anchor=CENTER, width=430, height=590)
 
-        Label(
+        # Scrollable canvas inside form_panel
+        self.form_scrollbar = Scrollbar(self.form_panel, orient=VERTICAL)
+        self.form_scrollbar.pack(side=RIGHT, fill=Y)
+        self.form_canvas = Canvas(
             self.form_panel,
+            bg=self.colors["panel"],
+            highlightthickness=0,
+            bd=0,
+            yscrollcommand=self.form_scrollbar.set,
+        )
+        self.form_canvas.pack(side=LEFT, fill=BOTH, expand=True)
+        self.form_scrollbar.configure(command=self.form_canvas.yview)
+        self.form_inner = Frame(self.form_canvas, bg=self.colors["panel"], height=590)
+        self._form_canvas_win = self.form_canvas.create_window((0, 0), window=self.form_inner, anchor="nw")
+        self.form_inner.bind(
+            "<Configure>",
+            lambda e: self.form_canvas.configure(scrollregion=self.form_canvas.bbox("all")),
+        )
+        self.form_canvas.bind(
+            "<Configure>",
+            lambda e: self.form_canvas.itemconfig(self._form_canvas_win, width=e.width),
+        )
+        self.form_canvas.bind("<Enter>", lambda e: self.form_canvas.bind_all("<MouseWheel>", self._on_form_scroll))
+        self.form_canvas.bind("<Leave>", lambda e: self.form_canvas.unbind_all("<MouseWheel>"))
+
+        Label(
+            self.form_inner,
             text="Criminal Registration System",
             bg=self.colors["panel"],
             fg=self.colors["text"],
@@ -174,7 +224,7 @@ class RegisterDashboard:
         ).place(x=24, y=18)
 
         Label(
-            self.form_panel,
+            self.form_inner,
             text="Registration Form",
             bg=self.colors["panel"],
             fg=self.colors["muted"],
@@ -189,25 +239,44 @@ class RegisterDashboard:
         self._field("Mother Name", self.mothername, y)
         y += 48
 
-        Label(self.form_panel, text="Gender *", bg=self.colors["panel"], fg=self.colors["text"], font=("Segoe UI", 11)).place(x=28, y=y + 3)
+        Label(self.form_inner, text="Gender *", bg=self.colors["panel"], fg=self.colors["text"], font=("Segoe UI", 11)).place(x=28, y=y + 3)
         self._radio("Male", 1, 190, y)
         self._radio("Female", 2, 280, y)
         y += 48
 
         self._dropdown("Religion *", self.rel, ["Hindu", "Muslim", "Buddhist", "Christian", "Sikh", "Jain", "Others"], y)
-        y += 48
-        self._dropdown("Blood Group", self.blood, ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Not known"], y)
-        y += 48
 
-        self._field("Body Mark", self.bodymark, y)
-        y += 48
-        self._field("Nationality", self.nationality, y)
-        y += 48
-        self._crime_search_field("Crime convicted *", self.crime, y)
-        y += 56
+        self.custom_religion_y = y + 48
+        self.custom_religion_label = Label(
+            self.form_inner,
+            text="Specify Religion *",
+            bg=self.colors["panel"],
+            fg=self.colors["text"],
+            font=("Segoe UI", 11),
+        )
+        self.custom_religion_entry = Entry(self.form_inner, textvariable=self.custom_religion, width=48)
+        self._entry_style(self.custom_religion_entry)
 
-        self._action_button("Select Face Image *", self.open_file, 185, y)
-        self._action_button("Register Criminal", self.ask_register, 375, y)
+        self.blood_y = y + 48
+        self.blood_label, self.blood_menu = self._dropdown(
+            "Blood Group", self.blood, ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-", "Not known"], self.blood_y
+        )
+
+        self.body_mark_y = self.blood_y + 48
+        self.body_mark_label, self.body_mark_entry = self._field("Body Mark", self.bodymark, self.body_mark_y)
+
+        self.nationality_y = self.body_mark_y + 48
+        self.nationality_label, self.nationality_entry = self._field("Nationality", self.nationality, self.nationality_y)
+
+        self.crime_y = self.nationality_y + 48
+        self.crime_label = self._crime_search_field("Crime convicted *", self.crime, self.crime_y)
+
+        self.buttons_y = self.crime_y + 56
+        self.select_image_btn = self._action_button("Select Face Image *", self.open_file, 185, self.buttons_y)
+        self.register_btn = self._action_button("Register Criminal", self.ask_register, 375, self.buttons_y)
+
+        self.rel.trace_add("write", lambda *_args: self._toggle_custom_religion())
+        self._toggle_custom_religion()
 
         Label(
             self.preview_panel,
@@ -253,15 +322,17 @@ class RegisterDashboard:
         )
 
     def _field(self, label, variable, y):
-        Label(self.form_panel, text=label, bg=self.colors["panel"], fg=self.colors["text"], font=("Segoe UI", 11)).place(x=28, y=y + 3)
-        entry = Entry(self.form_panel, textvariable=variable, width=48)
+        field_label = Label(self.form_inner, text=label, bg=self.colors["panel"], fg=self.colors["text"], font=("Segoe UI", 11))
+        field_label.place(x=28, y=y + 3)
+        entry = Entry(self.form_inner, textvariable=variable, width=48)
         self._entry_style(entry)
         entry.place(x=190, y=y, height=30)
-
+        return field_label, entry
     def _crime_search_field(self, label, variable, y):
-        Label(self.form_panel, text=label, bg=self.colors["panel"], fg=self.colors["text"], font=("Segoe UI", 11)).place(x=28, y=y + 3)
+        crime_label = Label(self.form_inner, text=label, bg=self.colors["panel"], fg=self.colors["text"], font=("Segoe UI", 11))
+        crime_label.place(x=28, y=y + 3)
 
-        self.crime_entry = Entry(self.form_panel, textvariable=variable, width=48)
+        self.crime_entry = Entry(self.form_inner, textvariable=variable, width=48)
         self._entry_style(self.crime_entry)
         self.crime_entry.place(x=190, y=y, height=30)
         self.crime_suggestion_y = y + 31
@@ -270,7 +341,7 @@ class RegisterDashboard:
         self.crime_entry.bind("<FocusOut>", lambda _event: self.root.after(120, self._hide_crime_suggestions))
 
         self.crime_suggestion_box = Listbox(
-            self.form_panel,
+            self.form_inner,
             bg=self.colors["field"],
             fg=self.colors["text"],
             selectbackground=self.colors["btn_hover"],
@@ -284,7 +355,7 @@ class RegisterDashboard:
         self.crime_suggestion_box.bind("<ButtonRelease-1>", self._select_crime_from_suggestions)
         self.crime_suggestion_box.bind("<Return>", self._select_crime_from_suggestions)
         self.crime_suggestion_box.bind("<Escape>", lambda _event: self._hide_crime_suggestions())
-
+        return crime_label
     def _filter_crime_options(self, event=None):
         if self.crime_entry is None or self.crime_suggestion_box is None:
             return
@@ -406,7 +477,7 @@ class RegisterDashboard:
 
     def _radio(self, text, value, x, y):
         Radiobutton(
-            self.form_panel,
+            self.form_inner,
             text=text,
             variable=self.gen,
             value=value,
@@ -420,8 +491,9 @@ class RegisterDashboard:
         ).place(x=x, y=y)
 
     def _dropdown(self, label, variable, values, y):
-        Label(self.form_panel, text=label, bg=self.colors["panel"], fg=self.colors["text"], font=("Segoe UI", 11)).place(x=28, y=y + 3)
-        menu = OptionMenu(self.form_panel, variable, *values)
+        dropdown_label = Label(self.form_inner, text=label, bg=self.colors["panel"], fg=self.colors["text"], font=("Segoe UI", 11))
+        dropdown_label.place(x=28, y=y + 3)
+        menu = OptionMenu(self.form_inner, variable, *values)
         menu.configure(
             width=42,
             bg=self.colors["field"],
@@ -442,10 +514,10 @@ class RegisterDashboard:
             font=("Segoe UI", 10),
         )
         menu.place(x=190, y=y, height=30)
-
+        return dropdown_label, menu
     def _action_button(self, text, command, x, y):
         btn = Button(
-            self.form_panel,
+            self.form_inner,
             text=text,
             command=command,
             width=20,
@@ -465,7 +537,7 @@ class RegisterDashboard:
         btn.bind("<Leave>", lambda event, b=btn: self._button_hover_out(b))
         btn.bind("<ButtonPress-1>", lambda event, b=btn: self._button_press(b))
         btn.bind("<ButtonRelease-1>", lambda event, b=btn: self._button_release(b))
-
+        return btn
     def _create_nav_button(self, parent, text, command):
         button = Button(
             parent,
@@ -490,6 +562,47 @@ class RegisterDashboard:
         button.bind("<ButtonPress-1>", lambda event, b=button: self._nav_press(b))
         button.bind("<ButtonRelease-1>", lambda event, b=button: self._nav_hover_in(b))
         return button
+
+    def _toggle_custom_religion(self):
+        show_custom_religion = self.rel.get().strip() == "Others"
+
+        if show_custom_religion:
+            self.custom_religion_label.place(x=28, y=self.custom_religion_y + 3)
+            self.custom_religion_entry.place(x=190, y=self.custom_religion_y, height=30)
+        else:
+            self.custom_religion_label.place_forget()
+            self.custom_religion_entry.place_forget()
+            self.custom_religion.set("")
+
+        offset = 48 if show_custom_religion else 0
+
+        self.blood_label.place_configure(y=self.blood_y + offset + 3)
+        self.blood_menu.place_configure(y=self.blood_y + offset)
+        self.body_mark_label.place_configure(y=self.body_mark_y + offset + 3)
+        self.body_mark_entry.place_configure(y=self.body_mark_y + offset)
+        self.nationality_label.place_configure(y=self.nationality_y + offset + 3)
+        self.nationality_entry.place_configure(y=self.nationality_y + offset)
+        self.crime_label.place_configure(y=self.crime_y + offset + 3)
+
+        if self.crime_entry:
+            self.crime_entry.place_configure(y=self.crime_y + offset)
+            self.crime_suggestion_y = self.crime_y + offset + 31
+
+        if self.select_image_btn:
+            self.select_image_btn.place_configure(y=self.buttons_y + offset)
+        if self.register_btn:
+            self.register_btn.place_configure(y=self.buttons_y + offset)
+
+        self._hide_crime_suggestions()
+        # Resize inner frame so place-children are visible; enable scroll when Others expands layout
+        new_height = 640 if show_custom_religion else 590
+        self.form_inner.configure(height=new_height)
+        self.root.after(10, lambda: self.form_canvas.configure(
+            scrollregion=self.form_canvas.bbox("all")
+        ))
+
+    def _on_form_scroll(self, event):
+        self.form_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def _button_hover_in(self, button):
         button.configure(bg=self.colors["btn_hover"], font=("Segoe UI Semibold", 11), padx=14, pady=9)
@@ -552,6 +665,9 @@ class RegisterDashboard:
         self.preview_box.configure(image=self.preview_photo, text="")
 
     def ask_register(self):
+        if self._registering:
+            return
+
         proceed = self._show_notification(
             title="CFIS Confirmation",
             message="Mandatory fields: Name, Gender, Religion, Crime and Face Image.\n\nProceed with registration?",
@@ -560,23 +676,50 @@ class RegisterDashboard:
         if not proceed:
             return
 
+        form_data = self._collect_form_data()
         self._show_loading_screen()
+        self._registering = True
         self._register_result = None
+        self._register_error = None
 
         def _worker():
-            self._register_result = self.database_enter()
+            try:
+                self._register_result = self.database_enter(form_data=form_data)
+            except Exception as exc:
+                self._register_error = str(exc)
+                self._register_result = (0, f"Registration failed: {exc}")
 
         t = threading.Thread(target=_worker, daemon=True)
+        self._register_thread = t
         t.start()
         self.root.after(100, lambda: self._poll_register(t))
 
     def _poll_register(self, thread):
+        if not self.root.winfo_exists():
+            return
+
         if thread.is_alive():
             self.root.after(100, lambda: self._poll_register(thread))
             return
 
-        success, payload = self._register_result
+        result = self._register_result
+        self._registering = False
+        self._register_thread = None
         self._hide_loading_screen()
+
+        if result is None:
+            error_detail = self._register_error
+            message = "Registration did not complete. Please try again."
+            if error_detail:
+                message = f"Registration failed: {error_detail}"
+            self._show_notification(
+                title="Registration Failed",
+                message=message,
+                kind="warning",
+            )
+            return
+
+        success, payload = result
 
         # Handle duplicate face detection
         if success == 2:
@@ -589,11 +732,10 @@ class RegisterDashboard:
             )
         elif success == 1:
             self._show_notification(
-                title="Success",
-                message="Criminal registered successfully. Returning to the main menu.",
+                title="Registration Complete",
+                message="Criminal registered successfully!",
                 kind="info",
             )
-            self.go_back()
         else:
             self._show_notification(
                 title="Validation Warning",
@@ -604,9 +746,10 @@ class RegisterDashboard:
     def _show_loading_screen(self):
         self._loading_modal = Toplevel(self.root)
         self._loading_modal.transient(self.root)
-        self._loading_modal.grab_set()
+        self._loading_modal.attributes("-topmost", True)
         self._loading_modal.resizable(False, False)
-        self._loading_modal.overrideredirect(True)
+        self._loading_modal.title("Registering Criminal")
+        self._loading_modal.protocol("WM_DELETE_WINDOW", self._on_loading_close_requested)
         self._loading_modal.configure(bg=self.colors["panel"])
 
         width, height = 380, 210
@@ -681,6 +824,15 @@ class RegisterDashboard:
             "Comparing with existing records...",
             "Saving to database...",
         ]
+
+        Label(
+            frame,
+            text="Please wait... You can close this module if needed.",
+            bg=self.colors["panel"],
+            fg=self.colors["muted"],
+            font=("Segoe UI", 9),
+        ).place(relx=0.5, y=186, anchor=CENTER)
+
         self._animate_loading_screen()
         self._loading_modal.update()
 
@@ -714,7 +866,72 @@ class RegisterDashboard:
                 pass
             self._loading_anim_id = None
         if hasattr(self, "_loading_modal") and self._loading_modal.winfo_exists():
+            try:
+                self._loading_modal.attributes("-topmost", False)
+            except Exception:
+                pass
             self._loading_modal.destroy()
+        # Force root to reclaim focus so subsequent dialogs work
+        try:
+            self.root.focus_force()
+            self.root.update()
+        except Exception:
+            pass
+
+    def _on_loading_close_requested(self):
+        if not self._registering:
+            self._hide_loading_screen()
+            return
+
+        should_close = self._show_notification(
+            title="Registration In Progress",
+            message="Registration is still running. Exit this module now?",
+            kind="confirm",
+        )
+        if should_close:
+            self.root.destroy()
+
+    def _on_window_close(self):
+        if self._registering:
+            should_close = self._show_notification(
+                title="Registration In Progress",
+                message="Registration is still running. Exit this module now?",
+                kind="confirm",
+            )
+            if not should_close:
+                return
+        self.root.destroy()
+
+    def _collect_form_data(self):
+        religion_value = self.rel.get().strip()
+        religion = religion_value
+        if religion_value == "Select Religion":
+            religion = None
+        elif religion_value == "Others":
+            custom_rel = self.custom_religion.get().strip()
+            religion = custom_rel if custom_rel else None
+
+        blood_value = self.blood.get().strip()
+        blood_group = None if blood_value == "Select Blood Group" else blood_value
+
+        gender = ""
+        if self.gen.get() == 1:
+            gender = "Male"
+        elif self.gen.get() == 2:
+            gender = "Female"
+
+        return {
+            "name": self.fullname.get().strip(),
+            "father": self.fathername.get().strip(),
+            "mother": self.mothername.get().strip(),
+            "body": self.bodymark.get().strip(),
+            "nat": self.nationality.get().strip(),
+            "crime": self.crime.get().strip(),
+            "gender": gender,
+            "religion": religion,
+            "blood_group": blood_group,
+            "selected_file": self.selected_file,
+        }
 
     def _show_duplicate_criminal_modal(self, existing_id, existing_name, existing_crime, new_violation, matches=None):
         """Show duplicate warning with table view and admin actions."""
@@ -1488,6 +1705,28 @@ class RegisterDashboard:
         conn.close()
         return row[0] if row and row[0] is not None else 0
 
+    def _ensure_people_table(self):
+        conn = sqlite3.connect("criminal.db")
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS People (
+                ID INTEGER PRIMARY KEY AUTOINCREMENT,
+                Name TEXT NOT NULL,
+                Gender TEXT,
+                Father TEXT,
+                Mother TEXT,
+                Religion TEXT,
+                Blood TEXT,
+                Bodymark TEXT,
+                Nationality TEXT,
+                Crime TEXT
+            )
+            """
+        )
+        conn.commit()
+        conn.close()
+
     def _ensure_violations_table(self):
         conn = sqlite3.connect("criminal.db")
         cursor = conn.cursor()
@@ -1724,27 +1963,18 @@ class RegisterDashboard:
             print(f"[DEBUG] Duplicate face check error: {e}")
             return False, None, None
 
-    def database_enter(self, allow_duplicate_insert=False):
-        name = self.fullname.get().strip()
-        father = self.fathername.get().strip()
-        mother = self.mothername.get().strip()
-        body = self.bodymark.get().strip()
-        nat = self.nationality.get().strip()
-        crime = self.crime.get().strip()
+    def database_enter(self, allow_duplicate_insert=False, form_data=None):
+        data = form_data if form_data is not None else self._collect_form_data()
 
-        gender = ""
-        if self.gen.get() == 1:
-            gender = "Male"
-        elif self.gen.get() == 2:
-            gender = "Female"
-
-        religion = self.rel.get().strip()
-        blood_group = self.blood.get().strip()
-
-        if religion == "Select Religion":
-            religion = None
-        if blood_group == "Select Blood Group":
-            blood_group = None
+        name = data["name"]
+        father = data["father"]
+        mother = data["mother"]
+        body = data["body"]
+        nat = data["nat"]
+        crime = data["crime"]
+        gender = data["gender"]
+        religion = data["religion"]
+        blood_group = data["blood_group"]
 
         if not name:
             return 0, "Name is required."
@@ -1771,7 +2001,7 @@ class RegisterDashboard:
             return 0, "Crime convicted must be selected from the crime list."
         crime = canonical_crime
 
-        if not self.selected_file or not os.path.exists("temp/1.png"):
+        if not data["selected_file"] or not os.path.exists("temp/1.png"):
             return 0, "Face image is required. Please upload an image before registering."
 
         if body and not self._is_valid_text_label(body):
@@ -1791,23 +2021,33 @@ class RegisterDashboard:
                     "matches": existing_info,
                 }
 
-        conn = sqlite3.connect("criminal.db")
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO People (Name,Gender,Father,Mother,Religion,Blood,Bodymark,Nationality,Crime) VALUES(?,?,?,?,?,?,?,?,?)",
-            (name, gender, father, mother, religion, blood_group, body, nat, crime),
-        )
-        new_id = cursor.lastrowid
-        cursor.execute(
-            "INSERT INTO Violations (CriminalID, ViolationText) VALUES (?, ?)",
-            (new_id, crime),
-        )
-        conn.commit()
-        conn.close()
+        conn = None
+        try:
+            conn = sqlite3.connect("criminal.db", timeout=10)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO People (Name,Gender,Father,Mother,Religion,Blood,Bodymark,Nationality,Crime) VALUES(?,?,?,?,?,?,?,?,?)",
+                (name, gender, father, mother, religion, blood_group, body, nat, crime),
+            )
+            new_id = cursor.lastrowid
+            cursor.execute(
+                "INSERT INTO Violations (CriminalID, ViolationText) VALUES (?, ?)",
+                (new_id, crime),
+            )
 
-        target = "images/user." + str(new_id) + ".png"
-        shutil.copy("temp/1.png", target)
-        return 1, "ok"
+            os.makedirs("images", exist_ok=True)
+            target = "images/user." + str(new_id) + ".png"
+            shutil.copy("temp/1.png", target)
+
+            conn.commit()
+            return 1, "ok"
+        except Exception as exc:
+            if conn is not None:
+                conn.rollback()
+            return 0, f"Registration failed: {exc}"
+        finally:
+            if conn is not None:
+                conn.close()
 
     def _fade_in_window(self):
         alpha = self.root.attributes("-alpha")
