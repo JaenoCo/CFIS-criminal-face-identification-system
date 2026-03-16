@@ -116,6 +116,7 @@ class App:
         self.face_locations = []
         self.face_encodings = []
         self.face_names = []
+        self.face_labels = []
         self.process_this_frame = True
 
         self.images = self.load_images_from_folder("images")
@@ -645,7 +646,7 @@ class App:
             is_match = identity != 0
             # RGB colours (frame is already RGB)
             box_color   = (255, 60, 60)  if is_match else (45, 200, 255)
-            label       = f"ID: {identity}" if is_match else "Unknown"
+            label       = self.face_labels[i] if i < len(self.face_labels) else (f"ID: {identity}" if is_match else "Unknown")
 
             # Bounding rectangle
             cv2.rectangle(frame, (left, top), (right, bottom), box_color, 2)
@@ -686,9 +687,12 @@ class App:
                     self.face_encodings = []
 
                 self.face_names = []
+                self.face_labels = []
                 for face_encoding in self.face_encodings:
                     face_distances = fr.face_distance(self.encodings, face_encoding)
                     if len(face_distances) == 0:
+                        self.face_names.append(0)
+                        self.face_labels.append("Unknown")
                         continue
 
                     best_match_index = int(np.argmin(face_distances))
@@ -707,6 +711,15 @@ class App:
                         identity = matched_ids[0]
 
                     self.face_names.append(identity)
+
+                    label_text = "Unknown"
+                    if matched_ids:
+                        identity_profile = self.getProfile(identity)
+                        if identity_profile and identity_profile[1]:
+                            label_text = str(identity_profile[1])
+                        else:
+                            label_text = f"ID: {identity}"
+                    self.face_labels.append(label_text)
 
                     confidence = str(round(percent * 100, 2)) + "%"
                     candidate_profiles = []
