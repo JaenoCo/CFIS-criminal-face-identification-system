@@ -632,11 +632,47 @@ class App:
 
         self.window.wait_window(modal)
 
+    def _draw_face_boxes(self, frame):
+        """Overlay bounding boxes and identity labels on detected faces."""
+        scale = 4  # detection ran on a 0.25-scale frame
+        for i, (top, right, bottom, left) in enumerate(self.face_locations):
+            top    *= scale
+            right  *= scale
+            bottom *= scale
+            left   *= scale
+
+            identity = self.face_names[i] if i < len(self.face_names) else 0
+            is_match = identity != 0
+            # RGB colours (frame is already RGB)
+            box_color   = (255, 60, 60)  if is_match else (45, 200, 255)
+            label       = f"ID: {identity}" if is_match else "Unknown"
+
+            # Bounding rectangle
+            cv2.rectangle(frame, (left, top), (right, bottom), box_color, 2)
+
+            # Label backdrop
+            bar_top = max(top - 28, 0)
+            cv2.rectangle(frame, (left, bar_top), (right, top), box_color, cv2.FILLED)
+
+            # Label text (black so it contrasts against any box colour)
+            cv2.putText(
+                frame,
+                label,
+                (left + 4, max(top - 7, 13)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                (0, 0, 0),
+                2,
+                cv2.LINE_AA,
+            )
+        return frame
+
     def update(self):
         is_true, frame = self.vid.getframe()
         if is_true:
             self._frame_fail_count = 0
-            self.photo = ImageTk.PhotoImage(image=Image.fromarray(frame))
+            display_frame = self._draw_face_boxes(frame.copy())
+            self.photo = ImageTk.PhotoImage(image=Image.fromarray(display_frame))
             self.canvas.create_image(0, 0, image=self.photo, anchor=NW)
 
             small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
