@@ -12,9 +12,22 @@ import subprocess
 import time
 
 
+def runtime_base_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def ensure_runtime_cwd():
+    try:
+        os.chdir(runtime_base_dir())
+    except OSError:
+        pass
+
+
 def ensure_project_venv():
     """Relaunch with .venv interpreter when launched from a different Python."""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = runtime_base_dir()
     venv_python = os.path.join(base_dir, ".venv", "Scripts", "python.exe")
 
     if not os.path.exists(venv_python):
@@ -32,6 +45,7 @@ def ensure_project_venv():
 
 
 ensure_project_venv()
+ensure_runtime_cwd()
 import face_recognition as fr
 
 RESAMPLE = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
@@ -55,12 +69,21 @@ def notify_launcher_ready(root):
     root.after(120, _write_when_viewable)
 
 
+def launch_start_menu():
+    base_dir = runtime_base_dir()
+    if getattr(sys, "frozen", False):
+        subprocess.Popen([os.path.join(base_dir, "start.exe")])
+    else:
+        subprocess.Popen([sys.executable, os.path.join(base_dir, "start.py")])
+
+
 class App:
     """Live surveillance dashboard with modern UI and criminal match results."""
 
-    def __init__(self, video_source=0):
+    def __init__(self, video_source=0, parent=None):
         self.appname = "Criminal Registration System - Surveillance"
-        self.window = Tk()
+        self.window = Toplevel(parent) if parent else Tk()
+        self._parent = parent
         self.window.title(self.appname)
         self.window.geometry("1360x760")
         self.window.state("zoomed")
@@ -100,7 +123,9 @@ class App:
         self.known_face_names = []
         self._load_known_faces()
 
-        self.faceDetect = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
+        self.faceDetect = cv2.CascadeClassifier(
+            os.path.join(runtime_base_dir(), "haarcascade_frontalface_default.xml")
+        )
         self.recognizer = None
         if hasattr(cv2, "face") and hasattr(cv2.face, "LBPHFaceRecognizer_create"):
             self.recognizer = cv2.face.LBPHFaceRecognizer_create()
@@ -118,7 +143,8 @@ class App:
 
         notify_launcher_ready(self.window)
         self.update()
-        self.window.mainloop()
+        if parent is None:
+            self.window.mainloop()
 
     def _load_known_faces(self):
         for filename in self.images:
@@ -732,7 +758,8 @@ class App:
         return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
 
     def go_back(self):
-        subprocess.Popen([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "start.py")])
+        if self._parent and self._parent.winfo_exists():
+            self._parent.deiconify()
         self.window.destroy()
 
 

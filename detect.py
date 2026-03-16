@@ -13,9 +13,22 @@ import sys
 import subprocess
 
 
+def runtime_base_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def ensure_runtime_cwd():
+    try:
+        os.chdir(runtime_base_dir())
+    except OSError:
+        pass
+
+
 def ensure_project_venv():
     """Relaunch with .venv interpreter when launched from a different Python."""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = runtime_base_dir()
     venv_python = os.path.join(base_dir, ".venv", "Scripts", "python.exe")
 
     if not os.path.exists(venv_python):
@@ -56,11 +69,20 @@ def notify_launcher_ready(root):
     root.after(120, _write_when_viewable)
 
 
+def launch_start_menu():
+    base_dir = runtime_base_dir()
+    if getattr(sys, "frozen", False):
+        subprocess.Popen([os.path.join(base_dir, "start.exe")])
+    else:
+        subprocess.Popen([sys.executable, os.path.join(base_dir, "start.py")])
+
+
 class PhotoMatchDashboard:
     """Modern photo-matching screen for CFIS with animated dashboard UI."""
 
-    def __init__(self):
-        self.root = Tk()
+    def __init__(self, parent=None):
+        self.root = Toplevel(parent) if parent else Tk()
+        self._parent = parent
         self.root.title("Criminal Registration System - Photo Match")
         self.root.geometry("1360x760")
         self.root.state("zoomed")
@@ -654,7 +676,8 @@ class PhotoMatchDashboard:
         return "Violations (latest first):\n" + history
 
     def go_back(self):
-        subprocess.Popen([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "start.py")])
+        if self._parent and self._parent.winfo_exists():
+            self._parent.deiconify()
         self.root.destroy()
 
     def _fade_in_window(self):
@@ -706,9 +729,11 @@ class PhotoMatchDashboard:
         return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
 
     def run(self):
-        self.root.mainloop()
+        if self._parent is None:
+            self.root.mainloop()
 
 
 if __name__ == "__main__":
+    ensure_runtime_cwd()
     app = PhotoMatchDashboard()
     app.run()

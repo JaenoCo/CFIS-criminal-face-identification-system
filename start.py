@@ -3,12 +3,25 @@ from tkinter import ttk
 import sys
 import os
 import subprocess
-import uuid
+
+
+
+def runtime_base_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def ensure_runtime_cwd():
+    try:
+        os.chdir(runtime_base_dir())
+    except OSError:
+        pass
 
 
 def ensure_project_venv():
     """Relaunch with .venv interpreter when launched from a different Python."""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = runtime_base_dir()
     venv_python = os.path.join(base_dir, ".venv", "Scripts", "python.exe")
 
     if not os.path.exists(venv_python):
@@ -173,11 +186,17 @@ class ModuleLoadingOverlay:
 
 
 def launch_script(script_name, current_window=None, module_name="Module", messages=None):
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = runtime_base_dir()
     abs_script = os.path.join(base_dir, script_name)
 
+    if getattr(sys, "frozen", False):
+        module_exe = os.path.join(base_dir, f"{os.path.splitext(script_name)[0]}.exe")
+        launch_cmd = [module_exe]
+    else:
+        launch_cmd = [sys.executable, abs_script]
+
     if current_window is None:
-        subprocess.Popen([sys.executable, abs_script])
+        subprocess.Popen(launch_cmd)
         return
 
     token = uuid.uuid4().hex
@@ -189,48 +208,29 @@ def launch_script(script_name, current_window=None, module_name="Module", messag
     env["CFIS_READY_FILE"] = ready_file
 
     loader = ModuleLoadingOverlay(current_window, module_name, messages=messages)
-    process = subprocess.Popen([sys.executable, abs_script], env=env)
+    process = subprocess.Popen(launch_cmd, env=env)
     loader.watch_process(process, ready_file, on_finished=lambda: current_window.destroy())
 
 
 def register(current_window=None):
-    launch_script(
-        "registerGUI.py",
-        current_window,
-        module_name="Registration Module",
-        messages=[
-            "Initializing system...",
-            "Loading face recognition model...",
-            "Preparing registration module...",
-        ],
-    )
+    from registerGUI import RegisterDashboard
+    if current_window:
+        current_window.withdraw()
+    RegisterDashboard(parent=current_window)
 
 
 def video_surveillance(current_window=None):
-    launch_script(
-        "surveillance.py",
-        current_window,
-        module_name="Video Surveillance",
-        messages=[
-            "Initializing system...",
-            "Starting camera interface...",
-            "Preparing surveillance module...",
-        ],
-    )
+    from surveillance import App as SurveillanceApp
+    if current_window:
+        current_window.withdraw()
+    SurveillanceApp(parent=current_window)
 
 
 def detect_criminal(current_window=None):
-    launch_script(
-        "detect.py",
-        current_window,
-        module_name="Photo Match",
-        messages=[
-            "Initializing system...",
-            "Loading face recognition model...",
-            "Preparing photo match module...",
-        ],
-    )
-
+    from detect import PhotoMatchDashboard
+    if current_window:
+        current_window.withdraw()
+    PhotoMatchDashboard(parent=current_window)
 
 class AnimatedDashboard:
     """Modernized CFIS dashboard with dark theme and startup/button animations."""
@@ -432,6 +432,7 @@ class AnimatedDashboard:
 
 
 if __name__ == "__main__":
+    ensure_runtime_cwd()
     ensure_project_venv()
     app = AnimatedDashboard()
     app.run()
