@@ -10,6 +10,7 @@ import winsound
 import sys
 import subprocess
 import time
+import threading
 
 
 def runtime_base_dir():
@@ -126,7 +127,7 @@ class App:
         self.images = self.load_images_from_folder("images")
         self.encodings = []
         self.known_face_names = []
-        self._load_known_faces()
+        threading.Thread(target=self._load_known_faces, daemon=True).start()
 
         self.faceDetect = cv2.CascadeClassifier(
             os.path.join(runtime_base_dir(), "haarcascade_frontalface_default.xml")
@@ -152,6 +153,8 @@ class App:
             self.window.mainloop()
 
     def _load_known_faces(self):
+        new_encodings = []
+        new_names = []
         for filename in self.images:
             image_path = os.path.join("images", filename)
             try:
@@ -159,10 +162,17 @@ class App:
                 face_vectors = fr.face_encodings(img)
                 if not face_vectors:
                     continue
-                self.encodings.append(face_vectors[0])
-                self.known_face_names.append((os.path.splitext(filename)[0]).split(".")[1])
+                new_encodings.append(face_vectors[0])
+                new_names.append((os.path.splitext(filename)[0]).split(".")[1])
             except Exception:
                 continue
+        # Apply atomically on the main thread to avoid race conditions with update()
+        if self.window.winfo_exists():
+            self.window.after(0, lambda: self._apply_known_faces(new_encodings, new_names))
+
+    def _apply_known_faces(self, encodings, names):
+        self.encodings = encodings
+        self.known_face_names = names
 
     def _build_header(self):
         self.header = Frame(self.window, bg=self.colors["header"], height=64)
@@ -761,7 +771,11 @@ class App:
             if self._frame_fail_count == 15:
                 self._update_camera_status("Camera connected but no frames. Retrying...", self.colors["danger"])
             if self._frame_fail_count >= 45:
-                self.vid.reopen()
+                if not self.vid._reopen_lock.locked():
+                    try:
+                        self.vid.reopen()
+                    except Exception:
+                        pass
                 self._frame_fail_count = 0
                 self._update_camera_status("Monitoring", self.colors["muted"])
 
@@ -818,6 +832,8 @@ class App:
     def go_back(self):
         if self._parent and self._parent.winfo_exists():
             self._parent.deiconify()
+        else:
+            launch_start_menu()
         self.window.destroy()
 
 
@@ -829,7 +845,15 @@ class myvideocapture:
         self.height = 0
         self.active_source = None
         self.active_backend = None
-        self.reopen()
+        self._reopen_lock = threading.Lock()
+        # Open camera in background so the UI stays responsive immediately
+        threading.Thread(target=self._safe_open, daemon=True).start()
+
+    def _safe_open(self):
+        try:
+            self.reopen()
+        except Exception:
+            pass
 
     def _open_capture_with_backend(self, source, backend=None):
         if backend is None:
@@ -864,46 +888,47 @@ class myvideocapture:
         return False
 
     def reopen(self):
-        if self.vid is not None and self.vid.isOpened():
-            self.vid.release()
+        with self._reopen_lock:
+            if self.vid is not None and self.vid.isOpened():
+                self.vid.release()
 
-        candidates = []
-        if isinstance(self.video_source, int):
-            if os.name == "nt":
-                candidates.append((self.video_source, cv2.CAP_DSHOW))
-            candidates.append((self.video_source, None))
-        else:
-            if os.name == "nt":
-                candidates.append((self.video_source, cv2.CAP_DSHOW))
-            candidates.append((self.video_source, None))
+            candidates = []
+            if isinstance(self.video_source, int):
+                if os.name == "nt":
+                    candidates.append((self.video_source, cv2.CAP_DSHOW))
+                candidates.append((self.video_source, None))
+            else:
+                if os.name == "nt":
+                    candidates.append((self.video_source, cv2.CAP_DSHOW))
+                candidates.append((self.video_source, None))
 
-        unique_candidates = []
-        seen = set()
-        for source, backend in candidates:
-            key = (str(source), backend if backend is not None else "default")
-            if key in seen:
-                continue
-            seen.add(key)
-            unique_candidates.append((source, backend))
+            unique_candidates = []
+            seen = set()
+            for source, backend in candidates:
+                key = (str(source), backend if backend is not None else "default")
+                if key in seen:
+                    continue
+                seen.add(key)
+                unique_candidates.append((source, backend))
 
-        selected = None
-        selected_source = None
-        selected_backend = None
-        for source, backend in unique_candidates:
-            selected = self._open_capture_with_backend(source, backend)
-            if selected is not None:
-                selected_source = source
-                selected_backend = backend
-                break
+            selected = None
+            selected_source = None
+            selected_backend = None
+            for source, backend in unique_candidates:
+                selected = self._open_capture_with_backend(source, backend)
+                if selected is not None:
+                    selected_source = source
+                    selected_backend = backend
+                    break
 
-        if selected is None:
-            raise ValueError("Unable to open any video source", self.video_source)
+            if selected is None:
+                raise ValueError("Unable to open any video source", self.video_source)
 
-        self.vid = selected
-        self.active_source = selected_source
-        self.active_backend = selected_backend
-        self.width = self.vid.get(cv2.CAP_PROP_FRAME_WIDTH)
-        self.height = self.vid.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            self.vid = selected
+            self.active_source = selected_source
+            self.active_backend = selected_backend
+            self.width = self.vid.get(cv2.CAP_PROP_FRAME_WIDTH)
+            self.height = self.vid.get(cv2.CAP_PROP_FRAME_HEIGHT)
 
     def getframe(self):
         if self.vid and self.vid.isOpened():

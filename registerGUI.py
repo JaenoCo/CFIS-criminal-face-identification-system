@@ -69,6 +69,14 @@ def notify_launcher_ready(root):
     root.after(120, _write_when_viewable)
 
 
+def launch_start_menu():
+    base_dir = runtime_base_dir()
+    if getattr(sys, "frozen", False):
+        subprocess.Popen([os.path.join(base_dir, "start.exe")])
+    else:
+        subprocess.Popen([sys.executable, os.path.join(base_dir, "start.py")])
+
+
 class RegisterDashboard:
     """Modern registration UI for adding criminal profiles with image preview."""
 
@@ -144,11 +152,12 @@ class RegisterDashboard:
         # Initialize face detection for duplicate checking
         self.known_encodings = []
         self.known_face_ids = []
+        self._known_faces_lock = threading.Lock()
         self._ensure_people_table()
         self._ensure_violations_table()
         self._ensure_aliases_table()
         self._seed_violations_from_people()
-        self._load_known_faces()
+        threading.Thread(target=self._load_known_faces, daemon=True).start()
 
         self.bg_canvas = Canvas(self.root, highlightthickness=0, bd=0)
         self.bg_canvas.place(x=0, y=0, relwidth=1, relheight=1)
@@ -1809,6 +1818,8 @@ class RegisterDashboard:
     def go_back(self):
         if self._parent and self._parent.winfo_exists():
             self._parent.deiconify()
+        else:
+            launch_start_menu()
         self.root.destroy()
 
     def get_id(self):
@@ -1980,10 +1991,13 @@ class RegisterDashboard:
 
     def _load_known_faces(self):
         """Load all known face encodings from the images folder."""
-        self.known_encodings = []
-        self.known_face_ids = []
+        new_encodings = []
+        new_face_ids = []
         
         if not os.path.isdir("images"):
+            with self._known_faces_lock:
+                self.known_encodings = []
+                self.known_face_ids = []
             return
         
         for filename in os.listdir("images"):
@@ -1999,10 +2013,14 @@ class RegisterDashboard:
                     img = fr.load_image_file(image_path)
                     vectors = fr.face_encodings(img)
                     if vectors:
-                        self.known_encodings.append(vectors[0])
-                        self.known_face_ids.append(criminal_id)
+                        new_encodings.append(vectors[0])
+                        new_face_ids.append(criminal_id)
             except (ValueError, IndexError, Exception):
                 continue
+
+        with self._known_faces_lock:
+            self.known_encodings = new_encodings
+            self.known_face_ids = new_face_ids
 
     def _check_duplicate_face(self):
         """
@@ -2025,10 +2043,14 @@ class RegisterDashboard:
             
             new_encoding = new_encodings[0]
             
-            if not self.known_encodings:
+            with self._known_faces_lock:
+                known_encodings = list(self.known_encodings)
+                known_face_ids = list(self.known_face_ids)
+
+            if not known_encodings:
                 return False, None, None
             
-            face_distances = fr.face_distance(self.known_encodings, new_encoding)
+            face_distances = fr.face_distance(known_encodings, new_encoding)
 
             if len(face_distances) > 0:
                 # Keep high-confidence matches and map them to a user-friendly similarity score.
@@ -2037,7 +2059,7 @@ class RegisterDashboard:
                 if matched_indices:
                     best_for_id = {}
                     for idx in sorted(matched_indices, key=lambda i: face_distances[i]):
-                        cid = self.known_face_ids[idx]
+                        cid = known_face_ids[idx]
                         distance = float(face_distances[idx])
                         similarity = int(round(85 + ((0.45 - distance) / 0.45) * 15))
                         similarity = max(85, min(100, similarity))

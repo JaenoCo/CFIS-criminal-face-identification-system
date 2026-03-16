@@ -11,6 +11,7 @@ import math
 import winsound
 import sys
 import subprocess
+import threading
 
 
 def runtime_base_dir():
@@ -115,7 +116,7 @@ class PhotoMatchDashboard:
         self.images = self.load_images_from_folder("images")
         self.encodings = []
         self.known_face_names = []
-        self._load_known_faces()
+        threading.Thread(target=self._load_known_faces, daemon=True).start()
 
         self.bg_canvas = Canvas(self.root, highlightthickness=0, bd=0)
         self.bg_canvas.place(x=0, y=0, relwidth=1, relheight=1)
@@ -411,6 +412,8 @@ class PhotoMatchDashboard:
         return [name for name in os.listdir(folder) if os.path.isfile(os.path.join(folder, name))]
 
     def _load_known_faces(self):
+        new_encodings = []
+        new_names = []
         for filename in self.images:
             image_path = os.path.join("images", filename)
             try:
@@ -418,10 +421,16 @@ class PhotoMatchDashboard:
                 vectors = fr.face_encodings(img)
                 if not vectors:
                     continue
-                self.encodings.append(vectors[0])
-                self.known_face_names.append((os.path.splitext(filename)[0]).split(".")[1])
+                new_encodings.append(vectors[0])
+                new_names.append((os.path.splitext(filename)[0]).split(".")[1])
             except Exception:
                 continue
+        if self.root.winfo_exists():
+            self.root.after(0, lambda: self._apply_known_faces(new_encodings, new_names))
+
+    def _apply_known_faces(self, encodings, names):
+        self.encodings = encodings
+        self.known_face_names = names
 
     def show_percentage_match(self, face_distance, threshold=0.6):
         if face_distance > threshold:
@@ -678,6 +687,8 @@ class PhotoMatchDashboard:
     def go_back(self):
         if self._parent and self._parent.winfo_exists():
             self._parent.deiconify()
+        else:
+            launch_start_menu()
         self.root.destroy()
 
     def _fade_in_window(self):

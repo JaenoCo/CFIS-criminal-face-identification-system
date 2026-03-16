@@ -3,6 +3,8 @@ from tkinter import ttk
 import sys
 import os
 import subprocess
+import uuid
+import threading
 
 
 
@@ -212,25 +214,166 @@ def launch_script(script_name, current_window=None, module_name="Module", messag
     loader.watch_process(process, ready_file, on_finished=lambda: current_window.destroy())
 
 
+def _launch_module_in_process(current_window, module_name, messages, import_class):
+    if current_window is None:
+        module_class = import_class()
+        module_class()
+        return
+
+    overlay = ModuleLoadingOverlay(current_window, module_name, messages=messages)
+    state = {"cls": None, "min_done": False, "err": None}
+
+    def _try_open():
+        if state["err"] is not None:
+            overlay.close()
+            return
+        if state["cls"] is not None and state["min_done"]:
+            state["cls"](parent=current_window)
+            overlay.close()
+            current_window.withdraw()
+
+    def _bg_import():
+        try:
+            state["cls"] = import_class()
+        except Exception as exc:
+            state["err"] = exc
+        current_window.after(0, _try_open)
+
+    current_window.after(900, lambda: (state.__setitem__("min_done", True), _try_open()))
+    threading.Thread(target=_bg_import, daemon=True).start()
+
+
 def register(current_window=None):
-    from registerGUI import RegisterDashboard
-    if current_window:
-        current_window.withdraw()
-    RegisterDashboard(parent=current_window)
+    launch_script(
+        "registerGUI.py",
+        current_window=current_window,
+        module_name="Register",
+        messages=["Loading registration module...", "Preparing database...", "Opening form..."],
+    )
 
 
 def video_surveillance(current_window=None):
-    from surveillance import App as SurveillanceApp
-    if current_window:
-        current_window.withdraw()
-    SurveillanceApp(parent=current_window)
+    launch_script(
+        "surveillance.py",
+        current_window=current_window,
+        module_name="Surveillance",
+        messages=["Loading surveillance module...", "Connecting to camera...", "Starting feed..."],
+    )
 
 
 def detect_criminal(current_window=None):
-    from detect import PhotoMatchDashboard
-    if current_window:
-        current_window.withdraw()
-    PhotoMatchDashboard(parent=current_window)
+    launch_script(
+        "detect.py",
+        current_window=current_window,
+        module_name="Photo Match",
+        messages=["Loading photo match module...", "Preparing recognition engine...", "Opening scanner..."],
+    )
+
+
+class StartupSplash:
+    """Borderless splash screen shown once at system startup before the main dashboard."""
+
+    _MESSAGES = [
+        "Initializing system...",
+        "Loading core modules...",
+        "Preparing dashboard...",
+    ]
+    _SPINNER = ["|", "/", "-", "\\"]
+
+    def __init__(self, on_done):
+        self._on_done = on_done
+        self._msg_idx = 0
+        self._spin_idx = 0
+
+        self.root = Tk()
+        self.root.overrideredirect(True)
+        self.root.configure(bg="#040B1A")
+        self.root.attributes("-alpha", 0.0)
+        self.root.attributes("-topmost", True)
+
+        W, H = 520, 280
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        self.root.geometry(f"{W}x{H}+{(sw - W) // 2}+{(sh - H) // 2}")
+
+        self._build()
+        self._fade_in()
+        self.root.after(700, self._tick_msg)
+        self.root.after(90, self._tick_spin)
+        self.root.after(2600, self._finish)
+        self.root.mainloop()
+
+    def _build(self):
+        container = Frame(
+            self.root, bg="#0A152A",
+            highlightthickness=1, highlightbackground="#1E3A8A",
+        )
+        container.place(x=14, y=14, width=492, height=252)
+
+        Label(
+            container, text="CFIS", bg="#0A152A", fg="#27B1FF",
+            font=("Bahnschrift SemiBold", 48),
+        ).place(relx=0.5, y=20, anchor="n")
+
+        Label(
+            container, text="Criminal Face Identification System",
+            bg="#0A152A", fg="#86A4D9", font=("Segoe UI", 12),
+        ).place(relx=0.5, y=84, anchor="n")
+
+        self._msg_lbl = Label(
+            container, text=self._MESSAGES[0],
+            bg="#0A152A", fg="#E6F1FF", font=("Segoe UI", 10),
+        )
+        self._msg_lbl.place(relx=0.5, y=120, anchor="n")
+
+        self._spin_lbl = Label(
+            container, text="|", bg="#0A152A",
+            fg="#86A4D9", font=("Consolas", 14),
+        )
+        self._spin_lbl.place(relx=0.5, y=148, anchor="n")
+
+        style = ttk.Style(self.root)
+        style.theme_use("clam")
+        style.configure(
+            "Splash.Horizontal.TProgressbar",
+            troughcolor="#071226", bordercolor="#1E3A8A",
+            background="#27B1FF", lightcolor="#27B1FF", darkcolor="#1A6CB0",
+        )
+        pb = ttk.Progressbar(
+            container, orient=HORIZONTAL, length=440,
+            mode="indeterminate", style="Splash.Horizontal.TProgressbar",
+        )
+        pb.place(relx=0.5, y=195, anchor="n")
+        pb.start(10)
+
+    def _fade_in(self):
+        if not self.root.winfo_exists():
+            return
+        alpha = float(self.root.attributes("-alpha"))
+        if alpha < 1.0:
+            self.root.attributes("-alpha", min(alpha + 0.08, 1.0))
+            self.root.after(16, self._fade_in)
+
+    def _tick_msg(self):
+        if not self.root.winfo_exists():
+            return
+        next_idx = self._msg_idx + 1
+        if next_idx < len(self._MESSAGES):
+            self._msg_idx = next_idx
+            self._msg_lbl.configure(text=self._MESSAGES[self._msg_idx])
+        self.root.after(700, self._tick_msg)
+
+    def _tick_spin(self):
+        if not self.root.winfo_exists():
+            return
+        self._spin_lbl.configure(text=self._SPINNER[self._spin_idx % len(self._SPINNER)])
+        self._spin_idx += 1
+        self.root.after(90, self._tick_spin)
+
+    def _finish(self):
+        self.root.destroy()
+        self._on_done()
+
 
 class AnimatedDashboard:
     """Modernized CFIS dashboard with dark theme and startup/button animations."""
@@ -434,5 +577,4 @@ class AnimatedDashboard:
 if __name__ == "__main__":
     ensure_runtime_cwd()
     ensure_project_venv()
-    app = AnimatedDashboard()
-    app.run()
+    StartupSplash(on_done=lambda: AnimatedDashboard().run())
