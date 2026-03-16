@@ -117,7 +117,11 @@ class App:
         self.face_encodings = []
         self.face_names = []
         self.face_labels = []
-        self.process_this_frame = True
+        self._frame_index = 0
+        self._process_every_n_frames = 3
+        self._detect_scale = 0.2
+        self._detect_scale_inv = int(round(1 / self._detect_scale))
+        self._profile_cache = {}
 
         self.images = self.load_images_from_folder("images")
         self.encodings = []
@@ -214,6 +218,7 @@ class App:
 
         self.canvas = Canvas(self.video_panel, width=724, height=540, bg="#061124", highlightthickness=0)
         self.canvas.place(x=16, y=48)
+        self.canvas_image_id = self.canvas.create_image(0, 0, anchor=NW)
 
         self.status_label = Label(
             self.video_panel,
@@ -519,11 +524,15 @@ class App:
         if not identity:
             return None
 
+        if identity in self._profile_cache:
+            return self._profile_cache[identity]
+
         conn = sqlite3.connect("criminal.db")
         cmd = "SELECT ID,name,crime,nationality FROM people WHERE ID=?"
         cursor = conn.execute(cmd, (identity,))
         profile = cursor.fetchone()
         conn.close()
+        self._profile_cache[identity] = profile
         return profile
 
     def showPercentageMatch(self, face_distance, face_match_threshold=0.6):
@@ -635,7 +644,7 @@ class App:
 
     def _draw_face_boxes(self, frame):
         """Overlay bounding boxes and identity labels on detected faces."""
-        scale = 4  # detection ran on a 0.25-scale frame
+        scale = self._detect_scale_inv
         for i, (top, right, bottom, left) in enumerate(self.face_locations):
             top    *= scale
             right  *= scale
@@ -674,12 +683,12 @@ class App:
             self._frame_fail_count = 0
             display_frame = self._draw_face_boxes(frame.copy())
             self.photo = ImageTk.PhotoImage(image=Image.fromarray(display_frame))
-            self.canvas.create_image(0, 0, image=self.photo, anchor=NW)
+            self.canvas.itemconfig(self.canvas_image_id, image=self.photo)
 
-            small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+            small_frame = cv2.resize(frame, (0, 0), fx=self._detect_scale, fy=self._detect_scale)
             rgb_small_frame = np.ascontiguousarray(small_frame)
 
-            if self.process_this_frame and self.encodings:
+            if self.encodings and self._frame_index % self._process_every_n_frames == 0:
                 self.face_locations = fr.face_locations(rgb_small_frame)
                 try:
                     self.face_encodings = fr.face_encodings(rgb_small_frame, self.face_locations)
@@ -745,7 +754,7 @@ class App:
                     elif matched_ids:
                         self._update_camera_status("Match detected", self.colors["accent"])
 
-            self.process_this_frame = not self.process_this_frame
+            self._frame_index += 1
 
         else:
             self._frame_fail_count += 1
@@ -756,7 +765,7 @@ class App:
                 self._frame_fail_count = 0
                 self._update_camera_status("Monitoring", self.colors["muted"])
 
-        self.window.after(15, self.update)
+        self.window.after(22, self.update)
 
     def _fade_in_window(self):
         alpha = self.window.attributes("-alpha")
@@ -835,6 +844,9 @@ class myvideocapture:
 
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        if os.name == "nt":
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
 
         if not self._capture_produces_frames(cap):
             cap.release()
