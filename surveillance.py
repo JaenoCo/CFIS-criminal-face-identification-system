@@ -3,6 +3,7 @@ import numpy as np
 import sqlite3
 from tkinter import *
 from tkinter import ttk
+from tkinter import messagebox
 from PIL import Image, ImageTk, ImageOps
 import os
 import math
@@ -11,6 +12,8 @@ import sys
 import subprocess
 import time
 import threading
+from onvif_manager import ONVIFManager
+from onvif_dialog import ONVIFCameraDialog
 
 
 def runtime_base_dir():
@@ -111,6 +114,10 @@ class App:
         self.video_source = video_source
         self.vid = myvideocapture(self.video_source)
         self._frame_fail_count = 0
+        
+        # Initialize ONVIF manager for CCTV support
+        self.onvif_manager = ONVIFManager()
+        self.onvif_dialog = None
 
         self.detected_people = []
         self.warned_conflicts = set()
@@ -245,7 +252,7 @@ class App:
             bg=self.colors["panel"],
             fg=self.colors["muted"],
             font=("Segoe UI", 9),
-        ).place(x=492, y=592)
+        ).place(x=470, y=560)
 
         self.camera_source_var = StringVar()
         self.camera_source_combo = ttk.Combobox(
@@ -257,7 +264,7 @@ class App:
         )
         current_source = self.vid.active_source if isinstance(self.vid.active_source, int) else 0
         self.camera_source_var.set(str(current_source))
-        self.camera_source_combo.place(x=584, y=591)
+        self.camera_source_combo.place(x=560, y=559)
 
         Button(
             self.video_panel,
@@ -273,7 +280,33 @@ class App:
             font=("Segoe UI Semibold", 9),
             padx=10,
             pady=2,
-        ).place(x=636, y=589)
+        ).place(x=612, y=557)
+
+        self.onvif_btn = Button(
+            self.video_panel,
+            text="ONVIF CCTV",
+            command=self.select_onvif_camera,
+            bg="#1A5E9E",
+            fg=self.colors["text"],
+            activebackground="#2E7EDC",
+            activeforeground=self.colors["text"],
+            bd=0,
+            relief=FLAT,
+            cursor="hand2",
+            font=("Segoe UI Semibold", 9),
+            padx=10,
+            pady=2,
+        )
+        self.onvif_btn.place(x=470, y=585)
+
+        self.onvif_status_label = Label(
+            self.video_panel,
+            text="● Not Connected",
+            bg=self.colors["panel"],
+            fg=self.colors["danger"],
+            font=("Segoe UI", 9),
+        )
+        self.onvif_status_label.place(x=575, y=588)
 
         self._update_camera_status("Monitoring", self.colors["muted"])
 
@@ -435,6 +468,34 @@ class App:
             self._update_camera_status("Monitoring", self.colors["muted"])
         except Exception:
             self._update_camera_status(f"Camera {new_source} not available", self.colors["danger"])
+
+    def select_onvif_camera(self):
+        """Open ONVIF camera selection dialog."""
+        self._update_camera_status("Connecting to ONVIF camera...", self.colors["muted"])
+        
+        # Create and show ONVIF dialog
+        dialog = ONVIFCameraDialog(self.window, self.onvif_manager)
+        dialog.show()
+        
+        # Wait for dialog to close and check if device was selected
+        self.window.wait_window(dialog.dialog)
+        
+        stream_uri = dialog.get_selected_device()
+        if stream_uri:
+            try:
+                self.vid.video_source = stream_uri
+                self.vid.reopen()
+                self._frame_fail_count = 0
+                self._update_camera_status("Monitoring ONVIF camera", self.colors["accent"])
+                self.camera_source_var.set(stream_uri[:30] + "..." if len(stream_uri) > 30 else stream_uri)
+                self.onvif_btn.config(bg="#0F6B2E", activebackground="#1A9940")
+                self.onvif_status_label.config(text="● Connected", fg="#25C851")
+            except Exception as e:
+                self._update_camera_status(f"Failed to connect to ONVIF camera: {str(e)[:40]}", self.colors["danger"])
+                self.onvif_btn.config(bg="#1A5E9E", activebackground="#2E7EDC")
+                self.onvif_status_label.config(text="● Not Connected", fg=self.colors["danger"])
+        else:
+            self._update_camera_status("ONVIF selection cancelled", self.colors["muted"])
 
     def _setup_tree_style(self):
         style = ttk.Style()
