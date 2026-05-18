@@ -146,6 +146,8 @@ class ONVIFCameraDialog:
         self.device_listbox.delete(0, "end")
         for device in self.onvif_manager.devices:
             display_text = device.to_string()
+            if getattr(device, "is_manual", False):
+                display_text += " [Saved]"
             if device.stream_uri:
                 display_text += " ✓"
             self.device_listbox.insert("end", display_text)
@@ -184,7 +186,7 @@ class ONVIFCameraDialog:
 
             self.dialog.after(0, _apply_results)
         
-        self.onvif_manager.discover_devices_background(on_discovery_complete, subnet="192.168.1")
+        self.onvif_manager.discover_devices_background(on_discovery_complete)
     
     def _add_manual(self):
         """Add a device manually."""
@@ -226,8 +228,8 @@ class ONVIFCameraDialog:
         Entry(form_inner, textvariable=ip_var, font=("Segoe UI", 10), width=30).pack(padx=20, pady=5)
         
         # Port entry
-        Label(form_inner, text="Port (default 8080):", font=("Segoe UI", 10)).pack(anchor="w", padx=20, pady=(10, 5))
-        port_var = StringVar(value="8080")
+        Label(form_inner, text="Port (try 554 for RTSP-only cameras):", font=("Segoe UI", 10)).pack(anchor="w", padx=20, pady=(10, 5))
+        port_var = StringVar(value="554")
         Entry(form_inner, textvariable=port_var, font=("Segoe UI", 10), width=30).pack(padx=20, pady=5)
         
         # Username entry
@@ -239,6 +241,11 @@ class ONVIFCameraDialog:
         Label(form_inner, text="Password (optional):", font=("Segoe UI", 10)).pack(anchor="w", padx=20, pady=(10, 5))
         password_var = StringVar()
         Entry(form_inner, textvariable=password_var, font=("Segoe UI", 10), width=30, show="*").pack(padx=20, pady=5)
+
+        # Stream URI entry
+        Label(form_inner, text="RTSP Stream URI (optional):", font=("Segoe UI", 10)).pack(anchor="w", padx=20, pady=(10, 5))
+        stream_uri_var = StringVar()
+        Entry(form_inner, textvariable=stream_uri_var, font=("Segoe UI", 10), width=30).pack(padx=20, pady=5)
         
         def on_add():
             ip = ip_var.get().strip()
@@ -258,15 +265,24 @@ class ONVIFCameraDialog:
             
             username = username_var.get().strip()
             password = password_var.get().strip()
+            stream_uri = stream_uri_var.get().strip()
             
             def add_in_thread():
-                device = self.onvif_manager.add_device_manual(ip, port, username, password)
+                device = self.onvif_manager.add_device_manual(ip, port, username, password, stream_uri)
                 manual_dialog.after(0, lambda: _on_add_complete(device))
             
             def _on_add_complete(device):
-                if device and device.connected:
+                if device:
                     self._refresh_device_list()
-                    messagebox.showinfo("Success", f"Device added: {device.to_string()}")
+                    if stream_uri:
+                        messagebox.showinfo("Saved", f"Device saved with stream URI: {device.to_string()}")
+                    elif device.stream_uri:
+                        messagebox.showinfo("Success", f"Device added: {device.to_string()}")
+                    else:
+                        messagebox.showinfo(
+                            "Saved",
+                            f"Device added: {device.to_string()}\nThe app will try common V380 RTSP paths when you connect.",
+                        )
                     manual_dialog.destroy()
                 else:
                     messagebox.showerror("Error", f"Failed to connect to {ip}:{port}\nMake sure the device is reachable and has ONVIF enabled")
@@ -314,8 +330,12 @@ class ONVIFCameraDialog:
         self.selected_device = None
         self.dialog.destroy()
     
+    def get_selected_device_object(self):
+        """Get the selected ONVIF device object."""
+        return self.selected_device
+
     def get_selected_device(self):
-        """Get the selected device or its stream URI."""
+        """Get selected device stream URI (compatibility helper)."""
         if self.selected_device:
             # Ensure we have the stream URI
             stream_uri = self.onvif_manager.get_device_stream(self.selected_device)
