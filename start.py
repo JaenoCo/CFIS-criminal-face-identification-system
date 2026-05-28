@@ -14,6 +14,18 @@ def runtime_base_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def runtime_python_executable():
+    base_dir = runtime_base_dir()
+    candidates = [
+        os.path.join(base_dir, ".venv", "Scripts", "python.exe"),
+        os.path.join(os.path.dirname(base_dir), ".venv", "Scripts", "python.exe"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return sys.executable
+
+
 def ensure_runtime_cwd():
     try:
         os.chdir(runtime_base_dir())
@@ -23,21 +35,16 @@ def ensure_runtime_cwd():
 
 def ensure_project_venv():
     """Relaunch with .venv interpreter when launched from a different Python."""
-    base_dir = runtime_base_dir()
-    venv_python = os.path.join(base_dir, ".venv", "Scripts", "python.exe")
-
-    if not os.path.exists(venv_python):
-        return
+    runtime_python = runtime_python_executable()
 
     current = os.path.normcase(os.path.abspath(sys.executable))
-    expected = os.path.normcase(os.path.abspath(venv_python))
+    expected = os.path.normcase(os.path.abspath(runtime_python))
     already_bootstrapped = os.environ.get("CFIS_VENV_BOOTSTRAPPED") == "1"
 
     if current != expected and not already_bootstrapped:
         env = os.environ.copy()
         env["CFIS_VENV_BOOTSTRAPPED"] = "1"
-        subprocess.Popen([venv_python, os.path.abspath(__file__)], env=env)
-        sys.exit(0)
+        os.execv(runtime_python, [runtime_python, os.path.abspath(__file__)])
 
 
 class ModuleLoadingOverlay:
@@ -51,6 +58,8 @@ class ModuleLoadingOverlay:
         self.spinner_index = 0
         self._messages = messages if messages else [f"Loading {module_name}..."]
         self._msg_index = 0
+        self._closed = False
+        self._after_ids = set()
 
         self.top = Toplevel(parent)
         self.top.title("Loading")
@@ -130,15 +139,22 @@ class ModuleLoadingOverlay:
         self._animate_spinner()
         self._animate_messages()
 
+    def _schedule(self, delay_ms, callback):
+        if self._closed or not self.top.winfo_exists():
+            return None
+        after_id = self.top.after(delay_ms, callback)
+        self._after_ids.add(after_id)
+        return after_id
+
     def _animate_messages(self):
-        if not self.top.winfo_exists():
+        if self._closed or not self.top.winfo_exists():
             return
         # Advance to next message; stay on the last one once exhausted
         next_index = self._msg_index + 1
         if next_index < len(self._messages):
             self._msg_index = next_index
             self.message_label.configure(text=self._messages[self._msg_index])
-            self.top.after(1200, self._animate_messages)
+            self._schedule(1200, self._animate_messages)
 
     def watch_process(self, process, ready_file, on_finished):
         self._poll(process, ready_file, on_finished, wait_ticks=0)
@@ -158,23 +174,34 @@ class ModuleLoadingOverlay:
             on_finished()
             return
 
-        self.top.after(120, lambda: self._poll(process, ready_file, on_finished, wait_ticks + 1))
+        self._schedule(120, lambda: self._poll(process, ready_file, on_finished, wait_ticks + 1))
 
     def _fade_in(self):
+        if self._closed or not self.top.winfo_exists():
+            return
         try:
             alpha = float(self.top.attributes("-alpha"))
         except Exception:
             return
         if alpha < 1.0:
             self.top.attributes("-alpha", min(alpha + 0.08, 1.0))
-            self.top.after(16, self._fade_in)
+            self._schedule(16, self._fade_in)
 
     def _animate_spinner(self):
+        if self._closed or not self.top.winfo_exists():
+            return
         self.spinner_label.configure(text=self.spinner_frames[self.spinner_index])
         self.spinner_index = (self.spinner_index + 1) % len(self.spinner_frames)
-        self.top.after(90, self._animate_spinner)
+        self._schedule(90, self._animate_spinner)
 
     def close(self):
+        self._closed = True
+        for after_id in list(self._after_ids):
+            try:
+                self.top.after_cancel(after_id)
+            except Exception:
+                pass
+        self._after_ids.clear()
         try:
             self.progress.stop()
         except Exception:
@@ -195,7 +222,7 @@ def launch_script(script_name, current_window=None, module_name="Module", messag
         module_exe = os.path.join(base_dir, f"{os.path.splitext(script_name)[0]}.exe")
         launch_cmd = [module_exe]
     else:
-        launch_cmd = [sys.executable, abs_script]
+        launch_cmd = [runtime_python_executable(), abs_script]
 
     if current_window is None:
         subprocess.Popen(launch_cmd)
@@ -284,6 +311,9 @@ class StartupSplash:
         self._on_done = on_done
         self._msg_idx = 0
         self._spin_idx = 0
+        self._closed = False
+        self._after_ids = set()
+        self._progress = None
 
         self.root = Tk()
         self.root.overrideredirect(True)
@@ -298,10 +328,17 @@ class StartupSplash:
 
         self._build()
         self._fade_in()
-        self.root.after(700, self._tick_msg)
-        self.root.after(90, self._tick_spin)
-        self.root.after(2600, self._finish)
+        self._schedule(700, self._tick_msg)
+        self._schedule(90, self._tick_spin)
+        self._schedule(2600, self._finish)
         self.root.mainloop()
+
+    def _schedule(self, delay_ms, callback):
+        if self._closed or not self.root.winfo_exists():
+            return None
+        after_id = self.root.after(delay_ms, callback)
+        self._after_ids.add(after_id)
+        return after_id
 
     def _build(self):
         container = Frame(
@@ -311,26 +348,30 @@ class StartupSplash:
         container.place(x=14, y=14, width=492, height=252)
 
         Label(
-            container, text="CFIS", bg="#0A152A", fg="#27B1FF",
-            font=("Bahnschrift SemiBold", 48),
-        ).place(relx=0.5, y=20, anchor="n")
+            container,
+            text="SECURITY FACE\nDETECTION SYSTEM",
+            bg="#0A152A",
+            fg="#27B1FF",
+            font=("Bahnschrift SemiBold", 21),
+            justify=CENTER,
+        ).place(relx=0.5, y=12, anchor="n")
 
         Label(
-            container, text="Criminal Face Identification System",
+            container, text="Security Face Detection System",
             bg="#0A152A", fg="#86A4D9", font=("Segoe UI", 12),
-        ).place(relx=0.5, y=84, anchor="n")
+        ).place(relx=0.5, y=86, anchor="n")
 
         self._msg_lbl = Label(
             container, text=self._MESSAGES[0],
             bg="#0A152A", fg="#E6F1FF", font=("Segoe UI", 10),
         )
-        self._msg_lbl.place(relx=0.5, y=120, anchor="n")
+        self._msg_lbl.place(relx=0.5, y=122, anchor="n")
 
         self._spin_lbl = Label(
             container, text="|", bg="#0A152A",
             fg="#86A4D9", font=("Consolas", 14),
         )
-        self._spin_lbl.place(relx=0.5, y=148, anchor="n")
+        self._spin_lbl.place(relx=0.5, y=150, anchor="n")
 
         style = ttk.Style(self.root)
         style.theme_use("clam")
@@ -339,48 +380,61 @@ class StartupSplash:
             troughcolor="#071226", bordercolor="#1E3A8A",
             background="#27B1FF", lightcolor="#27B1FF", darkcolor="#1A6CB0",
         )
-        pb = ttk.Progressbar(
+        self._progress = ttk.Progressbar(
             container, orient=HORIZONTAL, length=440,
             mode="indeterminate", style="Splash.Horizontal.TProgressbar",
         )
-        pb.place(relx=0.5, y=195, anchor="n")
-        pb.start(10)
+        self._progress.place(relx=0.5, y=197, anchor="n")
+        self._progress.start(10)
 
     def _fade_in(self):
-        if not self.root.winfo_exists():
+        if self._closed or not self.root.winfo_exists():
             return
         alpha = float(self.root.attributes("-alpha"))
         if alpha < 1.0:
             self.root.attributes("-alpha", min(alpha + 0.08, 1.0))
-            self.root.after(16, self._fade_in)
+            self._schedule(16, self._fade_in)
 
     def _tick_msg(self):
-        if not self.root.winfo_exists():
+        if self._closed or not self.root.winfo_exists():
             return
         next_idx = self._msg_idx + 1
         if next_idx < len(self._MESSAGES):
             self._msg_idx = next_idx
             self._msg_lbl.configure(text=self._MESSAGES[self._msg_idx])
-        self.root.after(700, self._tick_msg)
+        self._schedule(700, self._tick_msg)
 
     def _tick_spin(self):
-        if not self.root.winfo_exists():
+        if self._closed or not self.root.winfo_exists():
             return
         self._spin_lbl.configure(text=self._SPINNER[self._spin_idx % len(self._SPINNER)])
         self._spin_idx += 1
-        self.root.after(90, self._tick_spin)
+        self._schedule(90, self._tick_spin)
 
     def _finish(self):
-        self.root.destroy()
+        self._closed = True
+        for after_id in list(self._after_ids):
+            try:
+                self.root.after_cancel(after_id)
+            except Exception:
+                pass
+        self._after_ids.clear()
+        try:
+            if self._progress is not None:
+                self._progress.stop()
+        except Exception:
+            pass
+        if self.root.winfo_exists():
+            self.root.destroy()
         self._on_done()
 
 
 class AnimatedDashboard:
-    """Modernized CFIS dashboard with dark theme and startup/button animations."""
+    """Modernized Security Face Detection System dashboard with dark theme and startup/button animations."""
 
     def __init__(self):
         self.root = Tk()
-        self.root.title("Criminal Registration System")
+        self.root.title("Security Face Detection System")
         self.root.geometry("800x500")
         self.root.minsize(800, 500)
         self.root.maxsize(800, 500)
@@ -420,7 +474,7 @@ class AnimatedDashboard:
 
         Label(
             self.header,
-            text="CRIMINAL REGISTRATION SYSTEM",
+            text="SECURITY FACE DETECTION SYSTEM",
             bg=self.colors["nav"],
             fg=self.colors["accent"],
             font=("Segoe UI Semibold", 12),
@@ -449,7 +503,7 @@ class AnimatedDashboard:
 
         Label(
             self.panel,
-            text="Criminal Registration System",
+            text="Security Face Detection System",
             bg=self.colors["panel"],
             fg=self.colors["text"],
             font=("Bahnschrift SemiBold", 24),

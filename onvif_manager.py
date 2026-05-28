@@ -1,5 +1,5 @@
 """
-ONVIF camera discovery and stream manager for CFIS.
+ONVIF camera discovery and stream manager for the Security Face Detection System.
 Allows detecting ONVIF-enabled cameras on the network and retrieving their RTSP streams.
 """
 

@@ -79,12 +79,12 @@ def launch_start_menu():
 
 
 class PhotoMatchDashboard:
-    """Modern photo-matching screen for CFIS with animated dashboard UI."""
+    """Modern photo-matching screen for the Security Face Detection System with animated dashboard UI."""
 
     def __init__(self, parent=None):
         self.root = Toplevel(parent) if parent else Tk()
         self._parent = parent
-        self.root.title("Criminal Registration System - Photo Match")
+        self.root.title("Security Face Detection System - Photo Match")
         self.root.geometry("1360x760")
         self.root.state("zoomed")
         self.root.configure(bg="#040B1A")
@@ -136,7 +136,7 @@ class PhotoMatchDashboard:
 
         Label(
             self.header,
-            text="CRIMINAL REGISTRATION SYSTEM",
+            text="SECURITY FACE DETECTION SYSTEM",
             bg=self.colors["header"],
             fg=self.colors["accent"],
             font=("Segoe UI Semibold", 13),

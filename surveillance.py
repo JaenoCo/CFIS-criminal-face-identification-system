@@ -22,6 +22,18 @@ def runtime_base_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def runtime_python_executable():
+    base_dir = runtime_base_dir()
+    candidates = [
+        os.path.join(base_dir, ".venv", "Scripts", "python.exe"),
+        os.path.join(os.path.dirname(base_dir), ".venv", "Scripts", "python.exe"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return sys.executable
+
+
 def ensure_runtime_cwd():
     try:
         os.chdir(runtime_base_dir())
@@ -31,21 +43,15 @@ def ensure_runtime_cwd():
 
 def ensure_project_venv():
     """Relaunch with .venv interpreter when launched from a different Python."""
-    base_dir = runtime_base_dir()
-    venv_python = os.path.join(base_dir, ".venv", "Scripts", "python.exe")
-
-    if not os.path.exists(venv_python):
-        return
-
+    runtime_python = runtime_python_executable()
     current = os.path.normcase(os.path.abspath(sys.executable))
-    expected = os.path.normcase(os.path.abspath(venv_python))
+    expected = os.path.normcase(os.path.abspath(runtime_python))
     already_bootstrapped = os.environ.get("CFIS_VENV_BOOTSTRAPPED") == "1"
 
     if current != expected and not already_bootstrapped:
         env = os.environ.copy()
         env["CFIS_VENV_BOOTSTRAPPED"] = "1"
-        subprocess.Popen([venv_python, os.path.abspath(__file__)], env=env)
-        sys.exit(0)
+        os.execv(runtime_python, [runtime_python, os.path.abspath(__file__)])
 
 
 ensure_project_venv()
@@ -78,14 +84,14 @@ def launch_start_menu():
     if getattr(sys, "frozen", False):
         subprocess.Popen([os.path.join(base_dir, "start.exe")])
     else:
-        subprocess.Popen([sys.executable, os.path.join(base_dir, "start.py")])
+        subprocess.Popen([runtime_python_executable(), os.path.join(base_dir, "start.py")])
 
 
 class App:
-    """Live surveillance dashboard with modern UI and criminal match results."""
+    """Live surveillance dashboard for the Security Face Detection System with modern UI and match results."""
 
     def __init__(self, video_source=0, parent=None):
-        self.appname = "Criminal Registration System - Surveillance"
+        self.appname = "Security Face Detection System - Surveillance"
         self.window = Toplevel(parent) if parent else Tk()
         self._parent = parent
         self.window.title(self.appname)
@@ -189,7 +195,7 @@ class App:
 
         Label(
             self.header,
-            text="CRIMINAL REGISTRATION SYSTEM",
+            text="SECURITY FACE DETECTION SYSTEM",
             bg=self.colors["header"],
             fg=self.colors["accent"],
             font=("Segoe UI Semibold", 13),

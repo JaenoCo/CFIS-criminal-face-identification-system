@@ -1,5 +1,5 @@
 """
-ONVIF Camera Selection Dialog for CFIS Surveillance.
+ONVIF Camera Selection Dialog for the Security Face Detection System surveillance module.
 Provides UI for discovering and selecting ONVIF cameras.
 """
 
