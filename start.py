@@ -1,58 +1,51 @@
+from tkinter import *
+from tkinter import ttk
 import sys
 import os
+import shutil
 import subprocess
 import uuid
 import threading
-import traceback
-import importlib
-import inspect
-import os as _os
 
-# When running as a PyInstaller one-file bundle, PyInstaller extracts
-# runtime data (including tcl/tk) into a temporary folder available at
-# sys._MEIPASS. Tkinter needs TCL_LIBRARY/TK_LIBRARY to point to the
-# extracted tcl/tk folders so it can find init.tcl.
-if getattr(sys, "frozen", False):
-    meipass = getattr(sys, "_MEIPASS", None)
-    if meipass:
-        # PyInstaller places Tcl/Tk data under these bundle folders.
-        # Force the library paths so tkinter can always find init.tcl/tk.tcl.
-        tcl_dir = os.path.join(meipass, "_tcl_data")
-        tk_dir = os.path.join(meipass, "_tk_data")
-        if os.path.isdir(tcl_dir):
-            os.environ["TCL_LIBRARY"] = tcl_dir
-        if os.path.isdir(tk_dir):
-            os.environ["TK_LIBRARY"] = tk_dir
-else:
-    # Normal source runs use the Tcl/Tk installed with Python.
-    base_prefix = getattr(sys, "base_prefix", sys.prefix)
-    tcl_dir = os.path.join(base_prefix, "tcl", "tcl8.6")
-    tk_dir = os.path.join(base_prefix, "tcl", "tk8.6")
-    if os.path.isdir(tcl_dir):
-        os.environ["TCL_LIBRARY"] = tcl_dir
-    if os.path.isdir(tk_dir):
-        os.environ["TK_LIBRARY"] = tk_dir
 
-from tkinter import *
-from tkinter import ttk
-
-def _crash_log(msg):
-    try:
-        log_path = _os.path.join(
-            _os.path.expanduser("~"),
-            "Desktop",
-            "CFIS_crash_log.txt"
-        )
-        with open(log_path, "w", encoding="utf-8") as f:
-            f.write(msg)
-    except Exception:
-        pass
 
 def runtime_base_dir():
     if getattr(sys, "frozen", False):
-        # When bundled as one-file exe, PyInstaller extracts to a temp dir
         return os.path.dirname(os.path.abspath(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
+
+
+def bundle_base_dir():
+    if getattr(sys, "frozen", False):
+        return getattr(sys, "_MEIPASS", runtime_base_dir())
+    return runtime_base_dir()
+
+
+def ensure_runtime_assets():
+    runtime_dir = runtime_base_dir()
+    os.makedirs(os.path.join(runtime_dir, "temp"), exist_ok=True)
+
+    if not getattr(sys, "frozen", False):
+        return
+
+    source_dir = bundle_base_dir()
+
+    for filename in ("person.db", "haarcascade_frontalface_default.xml"):
+        source_path = os.path.join(source_dir, filename)
+        target_path = os.path.join(runtime_dir, filename)
+        if os.path.exists(source_path) and not os.path.exists(target_path):
+            try:
+                shutil.copy2(source_path, target_path)
+            except OSError:
+                pass
+
+    source_images = os.path.join(source_dir, "images")
+    target_images = os.path.join(runtime_dir, "images")
+    if os.path.isdir(source_images) and not os.path.exists(target_images):
+        try:
+            shutil.copytree(source_images, target_images)
+        except OSError:
+            pass
 
 
 def runtime_python_executable():
@@ -76,9 +69,16 @@ def ensure_runtime_cwd():
 
 def ensure_project_venv():
     """Relaunch with .venv interpreter when launched from a different Python."""
-    # Disable automatic relaunch during local runs to avoid execv/path issues.
-    # This function is intentionally a no-op when running under development.
-    return
+    runtime_python = runtime_python_executable()
+
+    current = os.path.normcase(os.path.abspath(sys.executable))
+    expected = os.path.normcase(os.path.abspath(runtime_python))
+    already_bootstrapped = os.environ.get("CFIS_VENV_BOOTSTRAPPED") == "1"
+
+    if current != expected and not already_bootstrapped:
+        env = os.environ.copy()
+        env["CFIS_VENV_BOOTSTRAPPED"] = "1"
+        os.execv(runtime_python, [runtime_python, os.path.abspath(__file__)])
 
 
 class ModuleLoadingOverlay:
@@ -174,24 +174,14 @@ class ModuleLoadingOverlay:
         self._animate_messages()
 
     def _schedule(self, delay_ms, callback):
-        if self._closed:
-            return None
-        try:
-            if not self.top.winfo_exists():
-                return None
-        except Exception:
+        if self._closed or not self.top.winfo_exists():
             return None
         after_id = self.top.after(delay_ms, callback)
         self._after_ids.add(after_id)
         return after_id
 
     def _animate_messages(self):
-        if self._closed:
-            return
-        try:
-            if not self.top.winfo_exists():
-                return
-        except Exception:
+        if self._closed or not self.top.winfo_exists():
             return
         # Advance to next message; stay on the last one once exhausted
         next_index = self._msg_index + 1
@@ -221,12 +211,7 @@ class ModuleLoadingOverlay:
         self._schedule(120, lambda: self._poll(process, ready_file, on_finished, wait_ticks + 1))
 
     def _fade_in(self):
-        if self._closed:
-            return
-        try:
-            if not self.top.winfo_exists():
-                return
-        except Exception:
+        if self._closed or not self.top.winfo_exists():
             return
         try:
             alpha = float(self.top.attributes("-alpha"))
@@ -237,12 +222,7 @@ class ModuleLoadingOverlay:
             self._schedule(16, self._fade_in)
 
     def _animate_spinner(self):
-        if self._closed:
-            return
-        try:
-            if not self.top.winfo_exists():
-                return
-        except Exception:
+        if self._closed or not self.top.winfo_exists():
             return
         self.spinner_label.configure(text=self.spinner_frames[self.spinner_index])
         self.spinner_index = (self.spinner_index + 1) % len(self.spinner_frames)
@@ -264,41 +244,62 @@ class ModuleLoadingOverlay:
             self.top.grab_release()
         except Exception:
             pass
-        try:
-            if self.top.winfo_exists():
-                self.top.destroy()
-        except Exception:
-            try:
-                self.top.destroy()
-            except Exception:
-                pass
+        if self.top.winfo_exists():
+            self.top.destroy()
 
 
 def launch_script(script_name, current_window=None, module_name="Module", messages=None):
     base_dir = runtime_base_dir()
     abs_script = os.path.join(base_dir, script_name)
+    script_stem = os.path.splitext(script_name)[0]
 
-    if getattr(sys, "frozen", False):
-        module_exe = os.path.join(base_dir, f"{os.path.splitext(script_name)[0]}.exe")
-        launch_cmd = [module_exe]
-    else:
-        launch_cmd = [runtime_python_executable(), abs_script]
+    def _import_module_class(mod_name):
+        import importlib
 
-    if current_window is None:
-        subprocess.Popen(launch_cmd)
+        module = importlib.import_module(mod_name)
+        for cls_name in ("RegisterDashboard", "PhotoMatchDashboard", "App"):
+            if hasattr(module, cls_name):
+                return getattr(module, cls_name)
+        raise ImportError(f"No dashboard class found in {mod_name}")
+
+    # Keep button launches inside the current process so the main dashboard
+    # stays consistent instead of closing and spawning a fresh instance.
+    if current_window is not None:
+        try:
+            if not getattr(sys, "frozen", False):
+                if script_stem == "registerGUI" and REGISTER_MODULE_CLASS:
+                    _launch_module_in_process(current_window, module_name, messages, lambda: REGISTER_MODULE_CLASS)
+                    return
+                if script_stem == "detect" and DETECT_MODULE_CLASS:
+                    _launch_module_in_process(current_window, module_name, messages, lambda: DETECT_MODULE_CLASS)
+                    return
+                if script_stem == "surveillance" and SURV_MODULE_CLASS:
+                    _launch_module_in_process(current_window, module_name, messages, lambda: SURV_MODULE_CLASS)
+                    return
+
+            module_class = _import_module_class(script_stem)
+            _launch_module_in_process(current_window, module_name, messages, lambda: module_class)
+        except Exception:
+            pass
         return
 
-    token = uuid.uuid4().hex
-    temp_dir = os.path.join(base_dir, "temp")
-    os.makedirs(temp_dir, exist_ok=True)
-    ready_file = os.path.join(temp_dir, f"launch_ready_{token}.flag")
+    # When frozen we prefer to launch companion module EXEs if they exist.
+    # If they don't exist (single-file bundle), import and run the
+    # module in-process so the UI opens as a child window.
+    if getattr(sys, "frozen", False):
+        module_exe = os.path.join(base_dir, f"{script_stem}.exe")
+        if os.path.exists(module_exe):
+            subprocess.Popen([module_exe])
+            return
 
-    env = os.environ.copy()
-    env["CFIS_READY_FILE"] = ready_file
+        try:
+            module_class = _import_module_class(script_stem)
+            module_class()
+        except Exception:
+            pass
+        return
 
-    loader = ModuleLoadingOverlay(current_window, module_name, messages=messages)
-    process = subprocess.Popen(launch_cmd, env=env)
-    loader.watch_process(process, ready_file, on_finished=lambda: current_window.destroy())
+    subprocess.Popen([runtime_python_executable(), abs_script])
 
 
 def _launch_module_in_process(current_window, module_name, messages, import_class):
@@ -315,22 +316,9 @@ def _launch_module_in_process(current_window, module_name, messages, import_clas
             overlay.close()
             return
         if state["cls"] is not None and state["min_done"]:
-            try:
-                # Withdraw the parent window before closing overlay to avoid
-                # race conditions where destroying the overlay also destroys
-                # Tk internals used by the parent.
-                if current_window is not None:
-                    try:
-                        if current_window.winfo_exists():
-                            current_window.withdraw()
-                    except Exception:
-                        pass
-                state["cls"](parent=current_window)
-            finally:
-                try:
-                    overlay.close()
-                except Exception:
-                    pass
+            state["cls"](parent=current_window)
+            overlay.close()
+            current_window.withdraw()
 
     def _bg_import():
         try:
@@ -343,115 +331,58 @@ def _launch_module_in_process(current_window, module_name, messages, import_clas
     threading.Thread(target=_bg_import, daemon=True).start()
 
 
+# Pre-import lightweight references for development (non-frozen) runs only.
+# Avoid importing heavy compiled extensions (dlib, cv2, etc.) when running
+# as a frozen bundle since those binaries may not be present in the main
+# single-file executable and will cause startup crashes.
+REGISTER_MODULE_CLASS = None
+DETECT_MODULE_CLASS = None
+SURV_MODULE_CLASS = None
+if not getattr(sys, "frozen", False):
+    try:
+        import registerGUI as _rg
+        REGISTER_MODULE_CLASS = getattr(_rg, "RegisterDashboard", None)
+    except Exception:
+        REGISTER_MODULE_CLASS = None
+
+    try:
+        import detect as _dt
+        DETECT_MODULE_CLASS = getattr(_dt, "PhotoMatchDashboard", None)
+    except Exception:
+        DETECT_MODULE_CLASS = None
+
+    try:
+        import surveillance as _sv
+        SURV_MODULE_CLASS = getattr(_sv, "App", None)
+    except Exception:
+        SURV_MODULE_CLASS = None
+
+
 def register(current_window=None):
-    if getattr(sys, "frozen", False):
-        def import_class():
-            def ctor(parent=None):
-                try:
-                    mod = importlib.import_module("registerGUI")
-                    cls = getattr(mod, "RegisterDashboard", None)
-                    if cls is None:
-                        return None
-                    try:
-                        return cls(parent=parent)
-                    except TypeError:
-                        return cls()
-                except Exception:
-                    _crash_log(traceback.format_exc())
-                    return None
-            return ctor
-        _launch_module_in_process(current_window, "Register", ["Loading registration module...", "Preparing database...", "Opening form..."], import_class)
-    else:
-        launch_script(
-            "registerGUI.py",
-            current_window=current_window,
-            module_name="Register",
-            messages=["Loading registration module...", "Preparing database...", "Opening form..."],
-        )
+    launch_script(
+        "registerGUI.py",
+        current_window=current_window,
+        module_name="Register",
+        messages=["Loading registration module...", "Preparing database...", "Opening form..."],
+    )
 
 
 def video_surveillance(current_window=None):
-    if getattr(sys, "frozen", False):
-        def import_class():
-            def ctor(parent=None):
-                try:
-                    mod = importlib.import_module("surveillance")
-                    cls = getattr(mod, "App", None)
-                    if cls is None:
-                        return None
-                    try:
-                        return cls(parent=parent)
-                    except TypeError:
-                        return cls()
-                except Exception:
-                    _crash_log(traceback.format_exc())
-                    return None
-            return ctor
-        _launch_module_in_process(current_window, "Surveillance", ["Loading surveillance module...", "Connecting to camera...", "Starting feed..."], import_class)
-    else:
-        launch_script(
-            "surveillance.py",
-            current_window=current_window,
-            module_name="Surveillance",
-            messages=["Loading surveillance module...", "Connecting to camera...", "Starting feed..."],
-        )
+    launch_script(
+        "surveillance.py",
+        current_window=current_window,
+        module_name="Surveillance",
+        messages=["Loading surveillance module...", "Connecting to camera...", "Starting feed..."],
+    )
 
 
-def detect_criminal(current_window=None):
-    if getattr(sys, "frozen", False):
-        def import_class():
-            def ctor(parent=None):
-                try:
-                    mod = importlib.import_module("detect")
-                    cls = getattr(mod, "PhotoMatchDashboard", None)
-                    if cls is None:
-                        return None
-                    try:
-                        return cls(parent=parent)
-                    except TypeError:
-                        return cls()
-                except Exception:
-                    _crash_log(traceback.format_exc())
-                    return None
-            return ctor
-        _launch_module_in_process(current_window, "Photo Match", ["Loading photo match module...", "Preparing recognition engine...", "Opening scanner..."], import_class)
-    else:
-        launch_script(
-            "detect.py",
-            current_window=current_window,
-            module_name="Photo Match",
-            messages=["Loading photo match module...", "Preparing recognition engine...", "Opening scanner..."],
-        )
-
-
-def records_management(current_window=None):
-    if getattr(sys, "frozen", False):
-        def import_class():
-            def ctor(parent=None):
-                try:
-                    mod = importlib.import_module("records")
-                    cls = getattr(mod, "RecordsManager", None)
-                    if cls is None:
-                        return None
-                    try:
-                        return cls()
-                    except TypeError:
-                        try:
-                            return cls(parent=parent)
-                        except Exception:
-                            return cls()
-                except Exception:
-                    _crash_log(traceback.format_exc())
-                    return None
-            return ctor
-        _launch_module_in_process(current_window, "Records", ["Loading records module...", "Fetching profiles...", "Opening records manager..."], import_class)
-    else:
-        launch_script(
-            "records.py",
-            current_window=current_window,
-            module_name="Records",
-            messages=["Loading records module...", "Fetching profiles...", "Opening records manager..."],
-        )
+def detect_person(current_window=None):
+    launch_script(
+        "detect.py",
+        current_window=current_window,
+        module_name="Photo Match",
+        messages=["Loading photo match module...", "Preparing recognition engine...", "Opening scanner..."],
+    )
 
 
 class StartupSplash:
@@ -582,26 +513,20 @@ class StartupSplash:
         except Exception:
             pass
         if self.root.winfo_exists():
-            self._on_done(self.root)
+            self.root.destroy()
+        self._on_done()
 
 
 class AnimatedDashboard:
     """Modernized Security Face Detection System dashboard with dark theme and startup/button animations."""
 
-    def __init__(self, root=None):
-        self._owns_root = root is None
-        self.root = root if root is not None else Tk()
-        for child in list(self.root.winfo_children()):
-            try:
-                child.destroy()
-            except Exception:
-                pass
+    def __init__(self):
+        self.root = Tk()
         self.root.title("Security Face Detection System")
         self.root.geometry("800x500")
         self.root.minsize(800, 500)
         self.root.maxsize(800, 500)
         self.root.configure(bg="#050B1A")
-        self.root.overrideredirect(False)
         self._center_window(800, 500)
 
         # Fade-in starts from transparent to make startup feel smoother.
@@ -643,7 +568,6 @@ class AnimatedDashboard:
             font=("Segoe UI Semibold", 12),
         ).pack(side=LEFT, padx=18, pady=16)
 
-
         Label(
             self.header,
             text="SECURITY DASHBOARD",
@@ -663,7 +587,7 @@ class AnimatedDashboard:
         # Panel starts slightly lower and slides upward on startup.
         self.panel_target_y = 0.56
         self.panel_current_y = 0.70
-        self.panel.place(relx=0.5, rely=self.panel_current_y, anchor=CENTER, width=560, height=380)
+        self.panel.place(relx=0.5, rely=self.panel_current_y, anchor=CENTER, width=560, height=320)
 
         Label(
             self.panel,
@@ -671,7 +595,7 @@ class AnimatedDashboard:
             bg=self.colors["panel"],
             fg=self.colors["text"],
             font=("Bahnschrift SemiBold", 24),
-        ).pack(pady=(22, 8))
+        ).pack(pady=(28, 10))
 
         Label(
             self.panel,
@@ -679,12 +603,11 @@ class AnimatedDashboard:
             bg=self.colors["panel"],
             fg=self.colors["muted"],
             font=("Segoe UI", 11),
-        ).pack(pady=(0, 12))
+        ).pack(pady=(0, 18))
 
-        self._create_action_button("Records Management", lambda: records_management(self.root)).pack(pady=5)
-        self._create_action_button("Register", lambda: register(self.root)).pack(pady=5)
-        self._create_action_button("Photo Match", lambda: detect_criminal(self.root)).pack(pady=5)
-        self._create_action_button("Video Surveillance", lambda: video_surveillance(self.root)).pack(pady=5)
+        self._create_action_button("Register Person", lambda: register(self.root)).pack(pady=7)
+        self._create_action_button("Photo Match", lambda: detect_person(self.root)).pack(pady=7)
+        self._create_action_button("Video Surveillance", lambda: video_surveillance(self.root)).pack(pady=7)
 
     def _create_action_button(self, text, command):
         button = Button(
@@ -700,9 +623,9 @@ class AnimatedDashboard:
             activebackground=self.colors["btn_hover"],
             activeforeground=self.colors["text"],
             cursor="hand2",
-            font=("Segoe UI Semibold", 11),
-            padx=14,
-            pady=6,
+            font=("Segoe UI Semibold", 12),
+            padx=16,
+            pady=8,
         )
 
         # Hover glow and slight scaling with font/padding changes.
@@ -715,9 +638,9 @@ class AnimatedDashboard:
     def _on_hover_in(self, button):
         button.configure(
             bg=self.colors["btn_hover"],
-            font=("Segoe UI Semibold", 12),
-            padx=16,
-            pady=7,
+            font=("Segoe UI Semibold", 13),
+            padx=18,
+            pady=9,
             highlightthickness=1,
             highlightbackground=self.colors["accent"],
         )
@@ -725,17 +648,17 @@ class AnimatedDashboard:
     def _on_hover_out(self, button):
         button.configure(
             bg=self.colors["btn"],
-            font=("Segoe UI Semibold", 11),
-            padx=14,
-            pady=6,
+            font=("Segoe UI Semibold", 12),
+            padx=16,
+            pady=8,
             highlightthickness=0,
         )
 
     def _on_press(self, button):
-        button.configure(bg=self.colors["btn_pressed"], font=("Segoe UI Semibold", 10), padx=12, pady=5)
+        button.configure(bg=self.colors["btn_pressed"], font=("Segoe UI Semibold", 11), padx=14, pady=7)
 
     def _on_release(self, button):
-        button.configure(bg=self.colors["btn_hover"], font=("Segoe UI Semibold", 12), padx=16, pady=7)
+        button.configure(bg=self.colors["btn_hover"], font=("Segoe UI Semibold", 13), padx=18, pady=9)
 
     def _fade_in_window(self):
         alpha = self.root.attributes("-alpha")
@@ -790,14 +713,15 @@ class AnimatedDashboard:
         return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
 
     def run(self):
-        if self._owns_root:
-            self.root.mainloop()
+        self.root.mainloop()
 
 
 if __name__ == "__main__":
-    try:
-        ensure_runtime_cwd()
+    ensure_runtime_cwd()
+    ensure_runtime_assets()
+    # When packaged by PyInstaller the app is already running from the
+    # bundled runtime; avoid re-execing the interpreter which expects
+    # a source `start.py` file on disk (not available in the onefile bundle).
+    if not getattr(sys, "frozen", False):
         ensure_project_venv()
-        StartupSplash(on_done=lambda root: AnimatedDashboard(root=root).run())
-    except Exception:
-        _crash_log(traceback.format_exc())
+    StartupSplash(on_done=lambda: AnimatedDashboard().run())

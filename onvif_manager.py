@@ -348,6 +348,9 @@ class ONVIFManager:
                 probe_succeeded = True
             except Exception as e:
                 logger.debug(f"Could not get hostname for {ip}: {e}")
+
+            if probe_succeeded:
+                device.connected = True
             
             # Get stream URI
             try:
@@ -369,6 +372,9 @@ class ONVIFManager:
                 resolved_stream = self._resolve_rtsp_stream(device)
                 if resolved_stream:
                     return device
+
+            if probe_succeeded:
+                return device
         
         except Exception as e:
             logger.debug(f"Failed to probe {ip}:{port} - {e}")

@@ -1,12 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_all
+
+
+numpy_datas, numpy_binaries, numpy_hiddenimports = collect_all('numpy')
+fr_datas, fr_binaries, fr_hiddenimports = collect_all('face_recognition_models')
+
 
 a = Analysis(
     ['start.py'],
     pathex=[],
-    binaries=[],
-    datas=[('haarcascade_frontalface_default.xml', '.'), ('criminal.db', '.'), ('images', 'images')],
-    hiddenimports=['face_recognition_models', 'dlib', 'zeep'],
+    binaries=numpy_binaries + fr_binaries,
+    datas=[('haarcascade_frontalface_default.xml', '.'), ('person.db', '.'), ('images', 'images')] + numpy_datas + fr_datas,
+    hiddenimports=['face_recognition_models', 'dlib', 'zeep'] + numpy_hiddenimports + fr_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -21,7 +27,6 @@ exe = EXE(
     a.scripts,
     a.binaries,
     a.datas,
-    [],
     name='SecurityFaceDetection',
     debug=False,
     bootloader_ignore_signals=False,
@@ -29,7 +34,7 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,
+    console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

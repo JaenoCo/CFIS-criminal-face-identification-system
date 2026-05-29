@@ -18,7 +18,7 @@ from onvif_dialog import ONVIFCameraDialog
 
 def runtime_base_dir():
     if getattr(sys, "frozen", False):
-        return getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+        return os.path.dirname(os.path.abspath(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
 
 
@@ -42,17 +42,20 @@ def ensure_runtime_cwd():
 
 
 def ensure_project_venv():
+    """Relaunch with .venv interpreter when launched from a different Python."""
     runtime_python = runtime_python_executable()
     current = os.path.normcase(os.path.abspath(sys.executable))
     expected = os.path.normcase(os.path.abspath(runtime_python))
     already_bootstrapped = os.environ.get("CFIS_VENV_BOOTSTRAPPED") == "1"
+
     if current != expected and not already_bootstrapped:
         env = os.environ.copy()
         env["CFIS_VENV_BOOTSTRAPPED"] = "1"
         os.execv(runtime_python, [runtime_python, os.path.abspath(__file__)])
 
 
-ensure_project_venv()
+if not getattr(sys, "frozen", False):
+    ensure_project_venv()
 ensure_runtime_cwd()
 import face_recognition as fr
 
@@ -63,6 +66,7 @@ def notify_launcher_ready(root):
     ready_file = os.environ.get("CFIS_READY_FILE")
     if not ready_file:
         return
+
     def _write_when_viewable():
         if root.winfo_viewable():
             try:
@@ -72,18 +76,22 @@ def notify_launcher_ready(root):
                 pass
             return
         root.after(120, _write_when_viewable)
+
     root.after(120, _write_when_viewable)
 
 
 def launch_start_menu():
     base_dir = runtime_base_dir()
     if getattr(sys, "frozen", False):
-        subprocess.Popen([os.path.join(base_dir, "start.exe")])
+        start_exe = os.path.join(base_dir, "start.exe")
+        subprocess.Popen([start_exe if os.path.exists(start_exe) else sys.executable])
     else:
         subprocess.Popen([runtime_python_executable(), os.path.join(base_dir, "start.py")])
 
 
 class App:
+    """Live surveillance dashboard for the Security Face Detection System with modern UI and match results."""
+
     def __init__(self, video_source=0, parent=None):
         self.appname = "Security Face Detection System - Surveillance"
         self.window = Toplevel(parent) if parent else Tk()
@@ -114,7 +122,8 @@ class App:
         self.video_source = video_source
         self.vid = myvideocapture(self.video_source)
         self._frame_fail_count = 0
-
+        
+        # Initialize ONVIF manager for CCTV support
         self.onvif_manager = ONVIFManager()
         self.onvif_dialog = None
 
@@ -148,6 +157,7 @@ class App:
 
         self._build_header()
         self._build_layout()
+        self._build_details()
 
         self._fade_in_window()
         self._slide_in_panels()
@@ -171,6 +181,7 @@ class App:
                 new_names.append((os.path.splitext(filename)[0]).split(".")[1])
             except Exception:
                 continue
+        # Apply atomically on the main thread to avoid race conditions with update()
         if self.window.winfo_exists():
             self.window.after(0, lambda: self._apply_known_faces(new_encodings, new_names))
 
@@ -373,7 +384,68 @@ class App:
         button.configure(bg=self.colors["nav_btn_pressed"], padx=13)
 
     def _build_details(self):
-        return
+        self.details_panel = Frame(
+            self.result_panel,
+            bg="#08182F",
+            highlightthickness=1,
+            highlightbackground=self.colors["panel_border"],
+        )
+        self.details_panel.place(x=16, y=388, width=528, height=214)
+
+        Label(
+            self.details_panel,
+            text="Selected Profile",
+            bg="#08182F",
+            fg=self.colors["accent"],
+            font=("Segoe UI Semibold", 12),
+        ).place(x=12, y=10)
+
+        self.detail_image_label = Label(self.details_panel, bg="#061124", anchor=CENTER)
+        self.detail_image_label.place(x=12, y=30, width=180, height=180)
+
+        self.detail_labels = {}
+        fields = [
+            ("Name", 205, 34),
+            ("Gender", 205, 58),
+            ("Father", 205, 82),
+            ("Mother", 205, 106),
+            ("Religion", 205, 130),
+            ("Blood", 205, 154),
+            ("Nationality", 205, 178),
+        ]
+
+        for key, x, y in fields:
+            Label(
+                self.details_panel,
+                text=key + ":",
+                bg="#08182F",
+                fg=self.colors["muted"],
+                font=("Segoe UI", 9),
+                anchor="w",
+            ).place(x=x, y=y)
+
+            value_label = Label(
+                self.details_panel,
+                text="-",
+                bg="#08182F",
+                fg=self.colors["text"],
+                font=("Segoe UI", 9),
+                anchor="w",
+            )
+            value_label.place(x=x + 80, y=y)
+            self.detail_labels[key.lower()] = value_label
+
+        self.crime_label = Label(
+            self.details_panel,
+            text="",
+            bg="#08182F",
+            fg=self.colors["danger"],
+            font=("Segoe UI Semibold", 11),
+            anchor="w",
+            justify=LEFT,
+            wraplength=300,
+        )
+        self.crime_label.place(x=205, y=198)
 
     def _active_backend_name(self):
         if self.vid.active_backend == cv2.CAP_DSHOW:
@@ -395,6 +467,7 @@ class App:
         if not selected.isdigit():
             self._update_camera_status("Invalid camera source", self.colors["danger"])
             return
+
         new_source = int(selected)
         try:
             self.vid.video_source = new_source
@@ -405,10 +478,16 @@ class App:
             self._update_camera_status(f"Camera {new_source} not available", self.colors["danger"])
 
     def select_onvif_camera(self):
+        """Open ONVIF camera selection dialog."""
         self._update_camera_status("Connecting to ONVIF camera...", self.colors["muted"])
+        
+        # Create and show ONVIF dialog
         dialog = ONVIFCameraDialog(self.window, self.onvif_manager)
         dialog.show()
+        
+        # Wait for dialog to close and check if device was selected
         self.window.wait_window(dialog.dialog)
+        
         stream_uri = dialog.get_selected_device()
         if stream_uri:
             try:
@@ -420,7 +499,7 @@ class App:
                 self.onvif_btn.config(bg="#0F6B2E", activebackground="#1A9940")
                 self.onvif_status_label.config(text="● Connected", fg="#25C851")
             except Exception as e:
-                self._update_camera_status(f"Failed to connect: {str(e)[:40]}", self.colors["danger"])
+                self._update_camera_status(f"Failed to connect to ONVIF camera: {str(e)[:40]}", self.colors["danger"])
                 self.onvif_btn.config(bg="#1A5E9E", activebackground="#2E7EDC")
                 self.onvif_status_label.config(text="● Not Connected", fg=self.colors["danger"])
         else:
@@ -461,100 +540,79 @@ class App:
         selected = self.tree.selection()
         if not selected:
             return
+
         item = self.tree.item(selected[0], "values")
         if not item:
             return
+
         try:
-            criminal_id = int(item[0])
+            person_id = int(item[0])
         except (ValueError, IndexError):
             return
-        self.show_profile_modal(criminal_id)
 
-    def viewdetail(self, criminal_id):
-        self.show_profile_modal(criminal_id)
+        self.viewdetail(person_id)
 
-    def _get_crime_history_text(self, criminal_id, fallback_crime):
-        conn = sqlite3.connect("criminal.db")
+    def viewdetail(self, person_id):
+        conn = sqlite3.connect("person.db")
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM people WHERE Id=?", (person_id,))
+        row = cur.fetchone()
+        conn.close()
+
+        if not row:
+            return
+
+        self.detail_labels["name"].configure(text=str(row[1]))
+        self.detail_labels["gender"].configure(text=str(row[2]))
+        self.detail_labels["father"].configure(text=str(row[3]))
+        self.detail_labels["mother"].configure(text=str(row[4]))
+        self.detail_labels["religion"].configure(text=str(row[5]))
+        self.detail_labels["blood"].configure(text=str(row[6]))
+        self.detail_labels["nationality"].configure(text=str(row[8]))
+        self.crime_label.configure(text=self._get_crime_history_text(person_id, fallback_crime=row[9]))
+
+        face_path = "images/user." + str(person_id) + ".png"
+        if os.path.exists(face_path):
+            image = Image.open(face_path)
+            image = ImageOps.contain(image, (180, 180), RESAMPLE)
+            self.detail_photo = ImageTk.PhotoImage(image)
+            self.detail_image_label.configure(image=self.detail_photo, text="")
+        else:
+            self.detail_image_label.configure(image="", text="No image", fg=self.colors["muted"]) 
+
+    def _get_crime_history_text(self, person_id, fallback_crime):
+        conn = sqlite3.connect("person.db")
         cur = conn.cursor()
         try:
             cur.execute(
-                "SELECT ViolationText FROM Violations WHERE CriminalID=? ORDER BY ViolationID DESC LIMIT 4",
-                (criminal_id,),
+                "SELECT ViolationText FROM Violations WHERE PersonID=? ORDER BY ViolationID DESC LIMIT 4",
+                (person_id,),
             )
             rows = cur.fetchall()
         except sqlite3.OperationalError:
             rows = []
         conn.close()
+
         if not rows:
             return "Crime: " + str(fallback_crime)
+
         history = "\n".join(["- " + str(item[0]) for item in rows])
         return "Violations (latest first):\n" + history
 
     def getProfile(self, identity):
         if not identity:
             return None
+
         if identity in self._profile_cache:
             return self._profile_cache[identity]
-        conn = sqlite3.connect("criminal.db")
+
+        conn = sqlite3.connect("person.db")
         cmd = "SELECT ID,name,crime,nationality FROM people WHERE ID=?"
         cursor = conn.execute(cmd, (identity,))
         profile = cursor.fetchone()
         conn.close()
         self._profile_cache[identity] = profile
         return profile
-
-    def show_profile_modal(self, criminal_id):
-        conn = sqlite3.connect("criminal.db")
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM people WHERE ID=?", (criminal_id,))
-        row = cur.fetchone()
-        conn.close()
-
-        if not row:
-            messagebox.showwarning("Not found", "Profile not found in database.")
-            return
-
-        modal = Toplevel(self.window)
-        modal.transient(self.window)
-        modal.grab_set()
-        modal.resizable(False, False)
-        modal.title(f"Profile - {row[1]}")
-        modal.configure(bg=self.colors["panel"])
-
-        width, height = 520, 380
-        screen_w = self.window.winfo_screenwidth()
-        screen_h = self.window.winfo_screenheight()
-        x = (screen_w - width) // 2
-        y = (screen_h - height) // 2
-        modal.geometry(f"{width}x{height}+{x}+{y}")
-
-        frame = Frame(modal, bg=self.colors["panel"], highlightthickness=1, highlightbackground=self.colors["panel_border"])
-        frame.place(x=0, y=0, width=width, height=height)
-
-        face_path = "images/user." + str(criminal_id) + ".png"
-        if os.path.exists(face_path):
-            img = Image.open(face_path)
-            img = ImageOps.contain(img, (160, 160), RESAMPLE)
-            photo = ImageTk.PhotoImage(img)
-            lbl_img = Label(frame, image=photo, bg=self.colors["panel"])
-            lbl_img.image = photo
-            lbl_img.place(x=12, y=12, width=160, height=160)
-        else:
-            lbl_img = Label(frame, text="No image", bg=self.colors["panel"], fg=self.colors["muted"])
-            lbl_img.place(x=12, y=12, width=160, height=160)
-
-        labels = ["Name", "Gender", "Father", "Mother", "Religion", "Blood", "Nationality", "Other Details"]
-        values = [row[1], row[2], row[3], row[4], row[5], row[6], row[8], row[9]]
-        y = 12
-        x = 190
-        for i, key in enumerate(labels):
-            Label(frame, text=key + ":", bg=self.colors["panel"], fg=self.colors["muted"], font=("Segoe UI", 10)).place(x=x, y=y)
-            Label(frame, text=str(values[i]) if values[i] is not None else "-", bg=self.colors["panel"], fg=self.colors["text"], font=("Segoe UI", 10)).place(x=x+110, y=y)
-            y += 28
-
-        Button(frame, text="Close", command=modal.destroy, bg=self.colors["btn"], fg=self.colors["text"], bd=0, relief=FLAT, cursor="hand2", font=("Segoe UI Semibold", 10)).place(x=width-110, y=height-48, width=90, height=32)
-
-        modal.wait_window()
 
     def showPercentageMatch(self, face_distance, face_match_threshold=0.6):
         if face_distance > face_match_threshold:
@@ -663,10 +721,8 @@ class App:
 
         self.window.wait_window(modal)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    #  DRAW BOUNDING BOXES — green, simple text
-    # ─────────────────────────────────────────────────────────────────────────
     def _draw_face_boxes(self, frame):
+        """Overlay bounding boxes and identity labels on detected faces."""
         scale = self._detect_scale_inv
         for i, (top, right, bottom, left) in enumerate(self.face_locations):
             top    *= scale
@@ -676,93 +732,29 @@ class App:
 
             identity = self.face_names[i] if i < len(self.face_names) else 0
             is_match = identity != 0
+            # RGB colours (frame is already RGB)
+            box_color   = (255, 60, 60) if is_match else (60, 220, 60)
+            label       = self.face_labels[i] if i < len(self.face_labels) else (f"ID: {identity}" if is_match else "Unknown")
 
-            # Green for known, gray-green for unknown
-            box_color = (30, 180, 60) if is_match else (80, 160, 80)
-
-            # Bounding box — thin green border
+            # Bounding rectangle
             cv2.rectangle(frame, (left, top), (right, bottom), box_color, 2)
 
-            # Simple label text
-            if is_match:
-                label = self.face_labels[i] if i < len(self.face_labels) else f"ID {identity}"
-            else:
-                label = "Unknown"
+            # Label backdrop
+            bar_top = max(top - 28, 0)
+            cv2.rectangle(frame, (left, bar_top), (right, top), box_color, cv2.FILLED)
 
-            # Small background bar behind text
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.4
-            thickness = 1
-            (tw, th), _ = cv2.getTextSize(label, font, font_scale, thickness)
-
-            # Draw background behind text
-            cv2.rectangle(frame, (left, top - th - 8), (left + tw + 6, top), box_color, cv2.FILLED)
-
-            # Draw text in dark color for contrast
+            # Label text (black so it contrasts against any box colour)
             cv2.putText(
                 frame,
                 label,
-                (left + 3, top - 4),
-                font,
-                font_scale,
+                (left + 4, max(top - 7, 13)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
                 (0, 0, 0),
-                thickness,
+                2,
                 cv2.LINE_AA,
             )
-
         return frame
-
-    def _clear_overlay_widgets(self):
-        if hasattr(self, "_overlay_widgets") and self._overlay_widgets:
-            for w in list(self._overlay_widgets.values()):
-                try:
-                    w.destroy()
-                except Exception:
-                    pass
-        self._overlay_widgets = {}
-
-    def _update_overlay_widgets(self):
-        try:
-            self._clear_overlay_widgets()
-        except Exception:
-            self._overlay_widgets = {}
-
-        scale = self._detect_scale_inv
-        for i, (top, right, bottom, left) in enumerate(self.face_locations):
-            top    *= scale
-            right  *= scale
-            bottom *= scale
-            left   *= scale
-
-            label_text = self.face_labels[i] if i < len(self.face_labels) else "Unknown"
-            identity = self.face_names[i] if i < len(self.face_names) else 0
-
-            if not identity or label_text == "Unknown":
-                continue
-
-            x = int(left)
-            y = max(int(top) - 22, 0)
-
-            btn = Button(
-                self.canvas,
-                text=label_text,
-                bg="#1A8C3A",
-                fg="#FFFFFF",
-                bd=0,
-                relief=FLAT,
-                cursor="hand2",
-                font=("Segoe UI", 9),
-                activebackground="#25A84A",
-            )
-            btn.configure(command=lambda cid=identity: self.show_profile_modal(cid))
-            self._overlay_widgets[i] = btn
-            try:
-                self.canvas.create_window(x, y, window=btn, anchor=NW)
-            except Exception:
-                try:
-                    btn.place(x=x, y=y)
-                except Exception:
-                    btn.destroy()
 
     def update(self):
         is_true, frame = self.vid.getframe()
@@ -771,10 +763,6 @@ class App:
             display_frame = self._draw_face_boxes(frame.copy())
             self.photo = ImageTk.PhotoImage(image=Image.fromarray(display_frame))
             self.canvas.itemconfig(self.canvas_image_id, image=self.photo)
-            try:
-                self._update_overlay_widgets()
-            except Exception:
-                pass
 
             small_frame = cv2.resize(frame, (0, 0), fx=self._detect_scale, fy=self._detect_scale)
             rgb_small_frame = np.ascontiguousarray(small_frame)
@@ -812,14 +800,13 @@ class App:
 
                     self.face_names.append(identity)
 
-                    # Simple label — just the name
                     label_text = "Unknown"
                     if matched_ids:
                         identity_profile = self.getProfile(identity)
                         if identity_profile and identity_profile[1]:
                             label_text = str(identity_profile[1])
                         else:
-                            label_text = f"ID {identity}"
+                            label_text = f"ID: {identity}"
                     self.face_labels.append(label_text)
 
                     confidence = str(round(percent * 100, 2)) + "%"
@@ -877,8 +864,10 @@ class App:
         if self.result_x > self.result_target_x:
             self.result_x -= 0.005
             updated = True
+
         self.video_panel.place_configure(relx=self.video_x)
         self.result_panel.place_configure(relx=self.result_x)
+
         if updated:
             self.window.after(16, self._slide_in_panels)
 
@@ -886,18 +875,22 @@ class App:
         self.bg_canvas.delete("all")
         width = max(event.width, 1)
         height = max(event.height, 1)
+
         top = self._hex_to_rgb("#030814")
         bottom = self._hex_to_rgb("#0A1B39")
+
         for y in range(height):
             ratio = y / height
             r = int(top[0] + (bottom[0] - top[0]) * ratio)
             g = int(top[1] + (bottom[1] - top[1]) * ratio)
             b = int(top[2] + (bottom[2] - top[2]) * ratio)
             self.bg_canvas.create_line(0, y, width, y, fill=f"#{r:02x}{g:02x}{b:02x}")
+
         for x in range(0, width, 44):
             self.bg_canvas.create_line(x, 64, x, height, fill=self.colors["grid1"])
         for y in range(64, height, 34):
             self.bg_canvas.create_line(0, y, width, y, fill=self.colors["grid2"])
+
         self.bg_canvas.create_rectangle(0, 63, width, 64, fill="#245AA3", outline="")
 
     @staticmethod
@@ -922,6 +915,7 @@ class myvideocapture:
         self.active_source = None
         self.active_backend = None
         self._reopen_lock = threading.Lock()
+        # Open camera in background so the UI stays responsive immediately
         threading.Thread(target=self._safe_open, daemon=True).start()
 
     def _safe_open(self):
@@ -935,18 +929,22 @@ class myvideocapture:
             cap = cv2.VideoCapture(source)
         else:
             cap = cv2.VideoCapture(source, backend)
+
         if not cap or not cap.isOpened():
             if cap:
                 cap.release()
             return None
+
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if os.name == "nt":
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+
         if not self._capture_produces_frames(cap):
             cap.release()
             return None
+
         return cap
 
     @staticmethod
@@ -962,6 +960,7 @@ class myvideocapture:
         with self._reopen_lock:
             if self.vid is not None and self.vid.isOpened():
                 self.vid.release()
+
             candidates = []
             if isinstance(self.video_source, int):
                 if os.name == "nt":
@@ -971,6 +970,7 @@ class myvideocapture:
                 if os.name == "nt":
                     candidates.append((self.video_source, cv2.CAP_DSHOW))
                 candidates.append((self.video_source, None))
+
             unique_candidates = []
             seen = set()
             for source, backend in candidates:
@@ -979,6 +979,7 @@ class myvideocapture:
                     continue
                 seen.add(key)
                 unique_candidates.append((source, backend))
+
             selected = None
             selected_source = None
             selected_backend = None
@@ -988,8 +989,10 @@ class myvideocapture:
                     selected_source = source
                     selected_backend = backend
                     break
+
             if selected is None:
                 raise ValueError("Unable to open any video source", self.video_source)
+
             self.vid = selected
             self.active_source = selected_source
             self.active_backend = selected_backend

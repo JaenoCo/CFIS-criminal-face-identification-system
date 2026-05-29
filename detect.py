@@ -16,8 +16,20 @@ import threading
 
 def runtime_base_dir():
     if getattr(sys, "frozen", False):
-        return getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+        return os.path.dirname(os.path.abspath(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
+
+
+def runtime_python_executable():
+    base_dir = runtime_base_dir()
+    candidates = [
+        os.path.join(base_dir, ".venv", "Scripts", "python.exe"),
+        os.path.join(os.path.dirname(base_dir), ".venv", "Scripts", "python.exe"),
+    ]
+    for candidate in candidates:
+        if os.path.exists(candidate):
+            return candidate
+    return sys.executable
 
 
 def ensure_runtime_cwd():
@@ -46,7 +58,8 @@ def ensure_project_venv():
         sys.exit(0)
 
 
-ensure_project_venv()
+if not getattr(sys, "frozen", False):
+    ensure_project_venv()
 import face_recognition as fr
 
 RESAMPLE = Image.Resampling.LANCZOS if hasattr(Image, "Resampling") else Image.LANCZOS
@@ -73,9 +86,10 @@ def notify_launcher_ready(root):
 def launch_start_menu():
     base_dir = runtime_base_dir()
     if getattr(sys, "frozen", False):
-        subprocess.Popen([os.path.join(base_dir, "start.exe")])
+        start_exe = os.path.join(base_dir, "start.exe")
+        subprocess.Popen([start_exe if os.path.exists(start_exe) else sys.executable])
     else:
-        subprocess.Popen([sys.executable, os.path.join(base_dir, "start.py")])
+        subprocess.Popen([runtime_python_executable(), os.path.join(base_dir, "start.py")])
 
 
 class PhotoMatchDashboard:
@@ -223,7 +237,7 @@ class PhotoMatchDashboard:
             show="headings",
             height=9,
         )
-        self.tree.heading("id", text="Criminal-ID")
+        self.tree.heading("id", text="Person ID")
         self.tree.heading("name", text="Name")
         self.tree.heading("crime", text="Crime")
         self.tree.heading("nationality", text="Nationality")
@@ -586,7 +600,7 @@ class PhotoMatchDashboard:
                 if cid not in matched_ids:
                     matched_ids.append(cid)
 
-            conn = sqlite3.connect("criminal.db")
+            conn = sqlite3.connect("person.db")
             cur = conn.cursor()
             matched_rows = []
             for identity in matched_ids:
@@ -632,16 +646,16 @@ class PhotoMatchDashboard:
             return
 
         try:
-            criminal_id = int(item[0])
+            person_id = int(item[0])
         except (ValueError, IndexError):
             return
 
-        self.view_detail(criminal_id)
+        self.view_detail(person_id)
 
-    def view_detail(self, criminal_id):
-        conn = sqlite3.connect("criminal.db")
+    def view_detail(self, person_id):
+        conn = sqlite3.connect("person.db")
         cur = conn.cursor()
-        cur.execute("SELECT * FROM people WHERE Id=?", (criminal_id,))
+        cur.execute("SELECT * FROM people WHERE Id=?", (person_id,))
         row = cur.fetchone()
         conn.close()
 
@@ -656,22 +670,22 @@ class PhotoMatchDashboard:
         self.profile_fields["blood"].configure(text=str(row[6]))
         self.profile_fields["bodymark"].configure(text=str(row[7]))
         self.profile_fields["nationality"].configure(text=str(row[8]))
-        self.crime_label.configure(text=self._get_crime_history_text(criminal_id, fallback_crime=row[9]))
+        self.crime_label.configure(text=self._get_crime_history_text(person_id, fallback_crime=row[9]))
 
-        face_path = "images/user." + str(criminal_id) + ".png"
+        face_path = "images/user." + str(person_id) + ".png"
         if os.path.exists(face_path):
             image = Image.open(face_path)
             image = ImageOps.contain(image, (250, 250), RESAMPLE)
             self.detail_photo = ImageTk.PhotoImage(image)
             self.detail_image.configure(image=self.detail_photo, text="")
 
-    def _get_crime_history_text(self, criminal_id, fallback_crime):
-        conn = sqlite3.connect("criminal.db")
+    def _get_crime_history_text(self, person_id, fallback_crime):
+        conn = sqlite3.connect("person.db")
         cur = conn.cursor()
         try:
             cur.execute(
-                "SELECT ViolationText FROM Violations WHERE CriminalID=? ORDER BY ViolationID DESC LIMIT 4",
-                (criminal_id,),
+                "SELECT ViolationText FROM Violations WHERE PersonID=? ORDER BY ViolationID DESC LIMIT 4",
+                (person_id,),
             )
             rows = cur.fetchall()
         except sqlite3.OperationalError:

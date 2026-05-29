@@ -12,7 +12,7 @@ import threading
 
 def runtime_base_dir():
     if getattr(sys, "frozen", False):
-        return getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
+        return os.path.dirname(os.path.abspath(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
 
 
@@ -48,7 +48,8 @@ def ensure_project_venv():
         os.execv(runtime_python, [runtime_python, os.path.abspath(__file__)])
 
 
-ensure_project_venv()
+if not getattr(sys, "frozen", False):
+    ensure_project_venv()
 ensure_runtime_cwd()
 
 import face_recognition as fr
@@ -78,7 +79,8 @@ def notify_launcher_ready(root):
 def launch_start_menu():
     base_dir = runtime_base_dir()
     if getattr(sys, "frozen", False):
-        subprocess.Popen([os.path.join(base_dir, "start.exe")])
+        start_exe = os.path.join(base_dir, "start.exe")
+        subprocess.Popen([start_exe if os.path.exists(start_exe) else sys.executable])
     else:
         subprocess.Popen([runtime_python_executable(), os.path.join(base_dir, "start.py")])
 
@@ -89,7 +91,7 @@ class RegisterDashboard:
     def __init__(self, parent=None):
         self.root = Toplevel(parent) if parent else Tk()
         self._parent = parent
-        self.root.title("Security Face Detection System - Register Criminal")
+        self.root.title("Security Face Detection System - Register Person")
         self.root.geometry("1280x720")
         self.root.minsize(1100, 680)
         self.root.state("zoomed")
@@ -192,7 +194,7 @@ class RegisterDashboard:
 
         Label(
             self.header,
-            text="Add and verify criminal identity records",
+            text="Add and verify person identity records",
             bg=self.colors["header"],
             fg=self.colors["muted"],
             font=("Segoe UI", 10),
@@ -340,12 +342,11 @@ class RegisterDashboard:
         )
 
         self.crime_y = self.nationality_y + 48
-        # Use dropdown for consistent crime/other details selection and rename label to 'Other Details'
-        self.crime_label, self.crime_menu = self._dropdown("Other Details *", self.crime, self.crime_options, self.crime_y)
+        self.crime_label = self._crime_search_field("Crime convicted *", self.crime, self.crime_y)
 
         self.buttons_y = self.crime_y + 56
         self.select_image_btn = self._action_button("Select Face Image *", self.open_file, 95, self.buttons_y)
-        self.register_btn = self._action_button("Register Criminal", self.ask_register, 285, self.buttons_y)
+        self.register_btn = self._action_button("Register Person", self.ask_register, 285, self.buttons_y)
 
         self.rel.trace_add("write", lambda *_args: self._toggle_custom_religion())
         self._toggle_custom_religion()
@@ -850,7 +851,7 @@ class RegisterDashboard:
 
         # Handle duplicate face detection
         if success == 2:
-            self._show_duplicate_criminal_modal(
+            self._show_duplicate_person_modal(
                 existing_id=payload["id"],
                 existing_name=payload["name"],
                 existing_crime=payload["crime"],
@@ -860,7 +861,7 @@ class RegisterDashboard:
         elif success == 1:
             self._show_notification(
                 title="Registration Complete",
-                message="Criminal registered successfully!",
+                message="Person registered successfully!",
                 kind="info",
             )
         else:
@@ -875,7 +876,7 @@ class RegisterDashboard:
         self._loading_modal.transient(self.root)
         self._loading_modal.attributes("-topmost", True)
         self._loading_modal.resizable(False, False)
-        self._loading_modal.title("Registering Criminal")
+        self._loading_modal.title("Registering Person")
         self._loading_modal.protocol("WM_DELETE_WINDOW", self._on_loading_close_requested)
         self._loading_modal.configure(bg=self.colors["panel"])
 
@@ -894,7 +895,7 @@ class RegisterDashboard:
 
         Label(
             frame,
-            text="REGISTERING CRIMINAL",
+            text="REGISTERING PERSON",
             bg=self.colors["panel"],
             fg=self.colors["accent"],
             font=("Segoe UI Semibold", 13),
@@ -1062,13 +1063,13 @@ class RegisterDashboard:
             "selected_file": self.selected_file,
         }
 
-    def _show_duplicate_criminal_modal(self, existing_id, existing_name, existing_crime, new_violation, matches=None):
+    def _show_duplicate_person_modal(self, existing_id, existing_name, existing_crime, new_violation, matches=None):
         """Show duplicate warning with table view and admin actions."""
         matches = matches or []
         records = self._collect_duplicate_records(existing_id, matches)
         self._show_notification(
-            title="Possible Existing Criminal",
-            message="Possible existing criminal detected. This person may already have a record in the database.",
+            title="Possible Existing Person",
+            message="Possible existing person detected. This person may already have a record in the database.",
             kind="warning",
         )
 
@@ -1096,7 +1097,7 @@ class RegisterDashboard:
         modal.transient(self.root)
         modal.grab_set()
         modal.resizable(False, False)
-        modal.title("Possible Existing Criminal Record")
+        modal.title("Possible Existing Person Record")
         modal.configure(bg=self.colors["panel"])
 
         width = 1100
@@ -1115,7 +1116,7 @@ class RegisterDashboard:
 
         Label(
             frame,
-            text="Warning: Criminal may already exist in the database",
+            text="Warning: Person may already exist in the database",
             bg=self.colors["panel"],
             fg="#FFAD42",
             font=("Segoe UI Semibold", 14),
@@ -1124,7 +1125,7 @@ class RegisterDashboard:
         Label(
             frame,
             text=(
-                f"Matched Profile: {existing_name}  |  Criminal ID: {self._format_criminal_id(existing_id)}"
+                f"Matched Profile: {existing_name}  |  Person ID: {self._format_person_id(existing_id)}"
                 f"  |  Similarity: {similarity_text}"
             ),
             bg=self.colors["panel"],
@@ -1184,7 +1185,7 @@ class RegisterDashboard:
         )
 
         columns = (
-            "criminal_id",
+            "person_id",
             "name",
             "alias",
             "crime",
@@ -1193,7 +1194,7 @@ class RegisterDashboard:
             "similarity",
         )
         table = ttk.Treeview(table_host, columns=columns, show="headings", height=14, style="Duplicate.Treeview")
-        table.heading("criminal_id", text="Criminal ID")
+        table.heading("person_id", text="Person ID")
         table.heading("name", text="Name")
         table.heading("alias", text="Possible Alias")
         table.heading("crime", text="Crime Type")
@@ -1201,7 +1202,7 @@ class RegisterDashboard:
         table.heading("location", text="Location")
         table.heading("similarity", text="Similarity Accuracy")
 
-        table.column("criminal_id", width=96, anchor=CENTER)
+        table.column("person_id", width=96, anchor=CENTER)
         table.column("name", width=136, anchor=W)
         table.column("alias", width=108, anchor=W)
         table.column("crime", width=146, anchor=W)
@@ -1231,7 +1232,7 @@ class RegisterDashboard:
                 "",
                 END,
                 values=(
-                    self._format_criminal_id(row["id"]),
+                    self._format_person_id(row["id"]),
                     row["name"],
                     row["alias"],
                     row["crime"],
@@ -1476,7 +1477,7 @@ class RegisterDashboard:
             photo_left_label.img_ref = new_img
             photo_left_label.configure(image=new_img, text="")
 
-            crim_id_str = self._format_criminal_id(rec["id"])
+            crim_id_str = self._format_person_id(rec["id"])
             selected_name_lbl.configure(
                 text=f"{rec.get('name', '-')}  |  {crim_id_str}"
             )
@@ -1498,7 +1499,7 @@ class RegisterDashboard:
             photo_left_label.img_ref = _bimg
             photo_left_label.configure(image=_bimg, text="")
             selected_name_lbl.configure(
-                text=f"{best.get('name', '-')}  |  {self._format_criminal_id(best['id'])}"
+                text=f"{best.get('name', '-')}  |  {self._format_person_id(best['id'])}"
             )
             _bs = int(best.get("similarity", 85))
             _bc = _threat_color(_bs)
@@ -1594,7 +1595,7 @@ class RegisterDashboard:
             self._show_notification(
                 title="Violation Added",
                 message=(
-                    f"Existing record kept for {existing_name} ({self._format_criminal_id(existing_id)}).\n"
+                    f"Existing record kept for {existing_name} ({self._format_person_id(existing_id)}).\n"
                     f"New violation added: {new_violation}\n\n"
                     f"Violation history:\n{history_text}"
                 ),
@@ -1622,7 +1623,7 @@ class RegisterDashboard:
                     title="Alias Saved",
                     message=(
                         f"New name '{admin_entered_name}' has been marked as alias for "
-                        f"{existing_name} ({self._format_criminal_id(existing_id)})."
+                        f"{existing_name} ({self._format_person_id(existing_id)})."
                     ),
                     kind="info",
                 )
@@ -1648,39 +1649,39 @@ class RegisterDashboard:
             pass
         return ImageTk.PhotoImage(fallback)
 
-    def _format_criminal_id(self, criminal_id):
+    def _format_person_id(self, person_id):
         try:
-            return f"CR-{int(criminal_id):04d}"
+            return f"PR-{int(person_id):04d}"
         except Exception:
-            return str(criminal_id)
+            return str(person_id)
 
     def _collect_duplicate_records(self, primary_id, matches):
         match_lookup = {item.get("id"): item for item in (matches or []) if item.get("id")}
         if primary_id not in match_lookup:
             match_lookup[primary_id] = {"id": primary_id, "similarity": 85}
 
-        criminal_ids = sorted(match_lookup.keys(), key=lambda cid: match_lookup[cid].get("distance", 9.9))
+        person_ids = sorted(match_lookup.keys(), key=lambda cid: match_lookup[cid].get("distance", 9.9))
 
-        conn = sqlite3.connect("criminal.db")
+        conn = sqlite3.connect("person.db")
         cursor = conn.cursor()
         records = []
 
-        for criminal_id in criminal_ids:
-            cursor.execute("SELECT Name, Nationality FROM People WHERE ID=?", (criminal_id,))
+        for person_id in person_ids:
+            cursor.execute("SELECT Name, Nationality FROM People WHERE ID=?", (person_id,))
             person = cursor.fetchone() or ("Unknown", "-")
-            aliases = self._get_aliases_for_criminal(criminal_id)
+            aliases = self._get_aliases_for_person(person_id)
             alias_text = ", ".join(aliases[:2]) if aliases else "-"
-            similarity = int(match_lookup[criminal_id].get("similarity", 85))
-            photo_name = f"user.{criminal_id}.png"
+            similarity = int(match_lookup[person_id].get("similarity", 85))
+            photo_name = f"user.{person_id}.png"
 
             cursor.execute(
                 """
                 SELECT ViolationText, CreatedAt
                 FROM Violations
-                WHERE CriminalID=?
+                WHERE PersonID=?
                 ORDER BY ViolationID ASC
                 """,
-                (criminal_id,),
+                (person_id,),
             )
             violations = cursor.fetchall()
 
@@ -1690,7 +1691,7 @@ class RegisterDashboard:
                     date_value = created_text.split(" ")[0] if created_text else "-"
                     records.append(
                         {
-                            "id": criminal_id,
+                            "id": person_id,
                             "name": person[0] or "-",
                             "alias": alias_text,
                             "crime": violation_text or "-",
@@ -1704,7 +1705,7 @@ class RegisterDashboard:
             else:
                 records.append(
                     {
-                        "id": criminal_id,
+                        "id": person_id,
                         "name": person[0] or "-",
                         "alias": alias_text,
                         "crime": "-",
@@ -1830,7 +1831,7 @@ class RegisterDashboard:
         self.root.destroy()
 
     def get_id(self):
-        conn = sqlite3.connect("criminal.db")
+        conn = sqlite3.connect("person.db")
         cursor = conn.cursor()
         cursor.execute("SELECT MAX(ID) FROM People")
         row = cursor.fetchone()
@@ -1838,7 +1839,7 @@ class RegisterDashboard:
         return row[0] if row and row[0] is not None else 0
 
     def _ensure_people_table(self):
-        conn = sqlite3.connect("criminal.db")
+        conn = sqlite3.connect("person.db")
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -1860,53 +1861,53 @@ class RegisterDashboard:
         conn.close()
 
     def _ensure_violations_table(self):
-        conn = sqlite3.connect("criminal.db")
+        conn = sqlite3.connect("person.db")
         cursor = conn.cursor()
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS Violations (
                 ViolationID INTEGER PRIMARY KEY AUTOINCREMENT,
-                CriminalID INTEGER NOT NULL,
+                PersonID INTEGER NOT NULL,
                 ViolationText TEXT NOT NULL,
                 CreatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (CriminalID) REFERENCES People(ID)
+                FOREIGN KEY (PersonID) REFERENCES People(ID)
             )
             """
         )
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_violations_criminal_id ON Violations(CriminalID)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_violations_person_id ON Violations(PersonID)")
         conn.commit()
         conn.close()
 
     def _ensure_aliases_table(self):
-        conn = sqlite3.connect("criminal.db")
+        conn = sqlite3.connect("person.db")
         cursor = conn.cursor()
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS Aliases (
                 AliasID INTEGER PRIMARY KEY AUTOINCREMENT,
-                CriminalID INTEGER NOT NULL,
+                PersonID INTEGER NOT NULL,
                 AliasName TEXT NOT NULL,
                 CreatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(CriminalID, AliasName),
-                FOREIGN KEY (CriminalID) REFERENCES People(ID)
+                UNIQUE(PersonID, AliasName),
+                FOREIGN KEY (PersonID) REFERENCES People(ID)
             )
             """
         )
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_aliases_criminal_id ON Aliases(CriminalID)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_aliases_person_id ON Aliases(PersonID)")
         conn.commit()
         conn.close()
 
     def _normalize_alias(self, value):
         return " ".join(str(value).strip().split())
 
-    def _add_alias(self, criminal_id, alias_name):
+    def _add_alias(self, person_id, alias_name):
         alias_clean = self._normalize_alias(alias_name)
         if not alias_clean:
             return False
 
-        conn = sqlite3.connect("criminal.db")
+        conn = sqlite3.connect("person.db")
         cursor = conn.cursor()
-        cursor.execute("SELECT Name FROM People WHERE ID=?", (criminal_id,))
+        cursor.execute("SELECT Name FROM People WHERE ID=?", (person_id,))
         row = cursor.fetchone()
         registered_name = self._normalize_alias(row[0]) if row and row[0] else ""
         if registered_name.lower() == alias_clean.lower():
@@ -1914,20 +1915,20 @@ class RegisterDashboard:
             return False
 
         cursor.execute(
-            "INSERT OR IGNORE INTO Aliases (CriminalID, AliasName) VALUES (?, ?)",
-            (criminal_id, alias_clean),
+            "INSERT OR IGNORE INTO Aliases (PersonID, AliasName) VALUES (?, ?)",
+            (person_id, alias_clean),
         )
         inserted = cursor.rowcount > 0
         conn.commit()
         conn.close()
         return inserted
 
-    def _get_aliases_for_criminal(self, criminal_id):
-        conn = sqlite3.connect("criminal.db")
+    def _get_aliases_for_person(self, person_id):
+        conn = sqlite3.connect("person.db")
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT AliasName FROM Aliases WHERE CriminalID=? ORDER BY AliasID ASC",
-            (criminal_id,),
+            "SELECT AliasName FROM Aliases WHERE PersonID=? ORDER BY AliasID ASC",
+            (person_id,),
         )
         rows = cursor.fetchall()
         conn.close()
@@ -1935,47 +1936,47 @@ class RegisterDashboard:
 
     def _seed_violations_from_people(self):
         # Backfill one initial violation for existing people when migration runs first time.
-        conn = sqlite3.connect("criminal.db")
+        conn = sqlite3.connect("person.db")
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO Violations (CriminalID, ViolationText)
+            INSERT INTO Violations (PersonID, ViolationText)
             SELECT p.ID, p.Crime
             FROM People p
             WHERE p.Crime IS NOT NULL
               AND TRIM(p.Crime) <> ''
               AND NOT EXISTS (
-                  SELECT 1 FROM Violations v WHERE v.CriminalID = p.ID
+                  SELECT 1 FROM Violations v WHERE v.PersonID = p.ID
               )
             """
         )
         conn.commit()
         conn.close()
 
-    def _add_violation(self, criminal_id, violation_text):
-        conn = sqlite3.connect("criminal.db")
+    def _add_violation(self, person_id, violation_text):
+        conn = sqlite3.connect("person.db")
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO Violations (CriminalID, ViolationText) VALUES (?, ?)",
-            (criminal_id, violation_text),
+            "INSERT INTO Violations (PersonID, ViolationText) VALUES (?, ?)",
+            (person_id, violation_text),
         )
         # Keep latest violation mirrored in People.Crime for existing screens.
-        cursor.execute("UPDATE People SET Crime=? WHERE ID=?", (violation_text, criminal_id))
+        cursor.execute("UPDATE People SET Crime=? WHERE ID=?", (violation_text, person_id))
         conn.commit()
         conn.close()
 
-    def _get_violation_history_text(self, criminal_id, limit=5):
-        conn = sqlite3.connect("criminal.db")
+    def _get_violation_history_text(self, person_id, limit=5):
+        conn = sqlite3.connect("person.db")
         cursor = conn.cursor()
         cursor.execute(
             """
             SELECT ViolationText
             FROM Violations
-            WHERE CriminalID=?
+            WHERE PersonID=?
             ORDER BY ViolationID DESC
             LIMIT ?
             """,
-            (criminal_id, limit),
+            (person_id, limit),
         )
         rows = cursor.fetchall()
         conn.close()
@@ -2015,13 +2016,13 @@ class RegisterDashboard:
                 # Extract ID from filename like "user.1.png"
                 parts = filename.split(".")
                 if len(parts) >= 3:
-                    criminal_id = int(parts[1])
+                    person_id = int(parts[1])
                     image_path = os.path.join("images", filename)
                     img = fr.load_image_file(image_path)
                     vectors = fr.face_encodings(img)
                     if vectors:
                         new_encodings.append(vectors[0])
-                        new_face_ids.append(criminal_id)
+                        new_face_ids.append(person_id)
             except (ValueError, IndexError, Exception):
                 continue
 
@@ -2032,7 +2033,7 @@ class RegisterDashboard:
     def _check_duplicate_face(self):
         """
         Check if the face in temp/1.png already exists in the database.
-        Returns: (exists: bool, criminal_id: int or None, matches: list[dict])
+        Returns: (exists: bool, person_id: int or None, matches: list[dict])
         """
         if not os.path.exists("temp/1.png"):
             return False, None, None
@@ -2077,9 +2078,9 @@ class RegisterDashboard:
                                 "similarity": similarity,
                             }
 
-                    ordered_ids = sorted(best_for_id.keys(), key=lambda criminal_id: best_for_id[criminal_id]["distance"])
+                    ordered_ids = sorted(best_for_id.keys(), key=lambda person_id: best_for_id[person_id]["distance"])
 
-                    conn = sqlite3.connect("criminal.db")
+                    conn = sqlite3.connect("person.db")
                     cursor = conn.cursor()
                     matched_rows = []
                     for cid in ordered_ids:
@@ -2138,10 +2139,10 @@ class RegisterDashboard:
             nat = ""
 
         if not crime:
-            return 0, "Other Details is required."
+            return 0, "Crime convicted is required."
         canonical_crime = self._canonical_crime(crime)
         if not canonical_crime:
-            return 0, "Other Details must be selected from the list."
+            return 0, "Crime convicted must be selected from the crime list."
         crime = canonical_crime
 
         if not data["selected_file"] or not os.path.exists("temp/1.png"):
@@ -2166,7 +2167,7 @@ class RegisterDashboard:
 
         conn = None
         try:
-            conn = sqlite3.connect("criminal.db", timeout=10)
+            conn = sqlite3.connect("person.db", timeout=10)
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT INTO People (Name,Gender,Father,Mother,Religion,Blood,Bodymark,Nationality,Crime) VALUES(?,?,?,?,?,?,?,?,?)",
@@ -2174,7 +2175,7 @@ class RegisterDashboard:
             )
             new_id = cursor.lastrowid
             cursor.execute(
-                "INSERT INTO Violations (CriminalID, ViolationText) VALUES (?, ?)",
+                "INSERT INTO Violations (PersonID, ViolationText) VALUES (?, ?)",
                 (new_id, crime),
             )
 
