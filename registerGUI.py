@@ -12,7 +12,7 @@ import threading
 
 def runtime_base_dir():
     if getattr(sys, "frozen", False):
-        return os.path.dirname(os.path.abspath(sys.executable))
+        return getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.executable)))
     return os.path.dirname(os.path.abspath(__file__))
 
 
@@ -340,7 +340,8 @@ class RegisterDashboard:
         )
 
         self.crime_y = self.nationality_y + 48
-        self.crime_label = self._crime_search_field("Crime convicted *", self.crime, self.crime_y)
+        # Use dropdown for consistent crime/other details selection and rename label to 'Other Details'
+        self.crime_label, self.crime_menu = self._dropdown("Other Details *", self.crime, self.crime_options, self.crime_y)
 
         self.buttons_y = self.crime_y + 56
         self.select_image_btn = self._action_button("Select Face Image *", self.open_file, 95, self.buttons_y)
@@ -2137,10 +2138,10 @@ class RegisterDashboard:
             nat = ""
 
         if not crime:
-            return 0, "Crime convicted is required."
+            return 0, "Other Details is required."
         canonical_crime = self._canonical_crime(crime)
         if not canonical_crime:
-            return 0, "Crime convicted must be selected from the crime list."
+            return 0, "Other Details must be selected from the list."
         crime = canonical_crime
 
         if not data["selected_file"] or not os.path.exists("temp/1.png"):
